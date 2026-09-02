@@ -7,283 +7,84 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-
 :root{
-  --bg:#080808;
-  --surface:#111111;
-  --surface2:#181818;
-  --border:#222222;
-  --border2:#2a2a2a;
-  --text:#F0F0F0;
-  --muted:#555555;
-  --dim:#333333;
-  --red:#FF3B3B;
-  --amber:#F59E0B;
-  --green:#10B981;
-  --blue:#3B82F6;
-  --mono:'JetBrains Mono',monospace;
-  --sans:'Inter',sans-serif;
+  --bg:#080808;--surface:#111111;--surface2:#181818;
+  --border:#222222;--border2:#2a2a2a;--text:#F0F0F0;
+  --muted:#555555;--dim:#333333;--red:#FF3B3B;
+  --amber:#F59E0B;--green:#10B981;--blue:#3B82F6;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',sans-serif;
 }
-
-body{
-  font-family:var(--sans);
-  background:var(--bg);
-  color:var(--text);
-  min-height:100vh;
-  padding:48px 24px;
-}
-
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;padding:48px 24px}
 .page{max-width:720px;margin:0 auto}
-
-/* header */
-.header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  margin-bottom:56px;
-}
-.logo{
-  font-size:13px;
-  font-weight:500;
-  letter-spacing:0.08em;
-  color:var(--text);
-  text-transform:uppercase;
-}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:56px}
+.logo{font-size:13px;font-weight:500;letter-spacing:0.08em;color:var(--text);text-transform:uppercase}
 .logo span{color:var(--muted)}
-.status{
-  font-size:11px;
-  color:var(--muted);
-  font-family:var(--mono);
-}
-
-/* input */
+.status{font-size:11px;color:var(--muted);font-family:var(--mono)}
 .input-wrap{margin-bottom:40px}
-
-.field-label{
-  font-size:11px;
-  font-weight:500;
-  color:var(--muted);
-  letter-spacing:0.06em;
-  text-transform:uppercase;
-  margin-bottom:10px;
-}
-
-textarea{
-  width:100%;
-  height:160px;
-  font-family:var(--mono);
-  font-size:11.5px;
-  line-height:1.7;
-  color:var(--text);
-  background:var(--surface);
-  border:1px solid var(--border2);
-  border-radius:4px;
-  padding:16px;
-  resize:vertical;
-  outline:none;
-  transition:border-color 0.2s;
-}
+.field-label{font-size:11px;font-weight:500;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:10px}
+textarea{width:100%;height:160px;font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--text);background:var(--surface);border:1px solid var(--border2);border-radius:4px;padding:16px;resize:vertical;outline:none;transition:border-color 0.2s}
 textarea:focus{border-color:var(--dim)}
 textarea::placeholder{color:var(--muted)}
-
-.btn{
-  margin-top:12px;
-  background:var(--text);
-  color:var(--bg);
-  border:none;
-  padding:11px 28px;
-  font-family:var(--sans);
-  font-size:12px;
-  font-weight:600;
-  letter-spacing:0.04em;
-  border-radius:4px;
-  cursor:pointer;
-  transition:opacity 0.15s;
-}
+.btn{margin-top:12px;background:var(--text);color:var(--bg);border:none;padding:11px 28px;font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:0.04em;border-radius:4px;cursor:pointer;transition:opacity 0.15s}
 .btn:hover{opacity:0.85}
 .btn:disabled{opacity:0.3;cursor:not-allowed}
-
-/* loading */
-.loading{
-  display:none;
-  font-size:12px;
-  color:var(--muted);
-  font-family:var(--mono);
-  padding:16px 0;
-}
-
-/* results */
+.loading{display:none;font-size:12px;color:var(--muted);font-family:var(--mono);padding:16px 0}
 .results{display:none}
-
-/* score — the only loud element */
-.score-wrap{
-  padding:40px 0;
-  margin-bottom:32px;
-  border-top:1px solid var(--border);
-  border-bottom:1px solid var(--border);
-  display:flex;
-  align-items:flex-end;
-  gap:24px;
-}
-.score-num{
-  font-size:96px;
-  font-weight:300;
-  line-height:1;
-  letter-spacing:-0.06em;
-}
+.score-wrap{padding:40px 0;margin-bottom:32px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;align-items:flex-end;gap:24px}
+.score-num{font-size:96px;font-weight:300;line-height:1;letter-spacing:-0.06em}
 .score-num.high{color:var(--red)}
 .score-num.med{color:var(--amber)}
 .score-num.low{color:var(--green)}
-
-.score-right{}
-.score-verdict{
-  font-size:13px;
-  font-weight:600;
-  letter-spacing:0.04em;
-  text-transform:uppercase;
-  margin-bottom:6px;
-}
+.score-verdict{font-size:13px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:6px}
 .score-verdict.high{color:var(--red)}
 .score-verdict.med{color:var(--amber)}
 .score-verdict.low{color:var(--green)}
-.score-sub{
-  font-size:12px;
-  color:var(--muted);
-  max-width:340px;
-  line-height:1.6;
-}
-
-/* section */
+.score-sub{font-size:12px;color:var(--muted);max-width:340px;line-height:1.6}
 .section{margin-bottom:32px}
-.section-title{
-  font-size:11px;
-  font-weight:500;
-  letter-spacing:0.07em;
-  text-transform:uppercase;
-  color:var(--muted);
-  margin-bottom:12px;
-  padding-bottom:10px;
-  border-bottom:1px solid var(--border);
-}
-
-/* data table */
-.drow{
-  display:flex;
-  gap:20px;
-  padding:10px 0;
-  border-bottom:1px solid var(--border);
-  font-size:12.5px;
-}
+.section-title{font-size:11px;font-weight:500;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.drow{display:flex;gap:20px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12.5px}
 .drow:last-child{border-bottom:none}
-.dk{
-  width:130px;
-  flex-shrink:0;
-  color:var(--muted);
-  font-size:11.5px;
-}
-.dv{
-  font-family:var(--mono);
-  font-size:11.5px;
-  color:var(--text);
-  word-break:break-all;
-  line-height:1.5;
-}
+.dk{width:130px;flex-shrink:0;color:var(--muted);font-size:11.5px}
+.dv{font-family:var(--mono);font-size:11.5px;color:var(--text);word-break:break-all;line-height:1.5}
 .dv.plain{font-family:var(--sans);font-size:12.5px}
-
-/* signals */
-.signal{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  padding:12px 0;
-  border-bottom:1px solid var(--border);
-  font-size:12.5px;
-  color:var(--red);
-}
+.signal{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--red)}
 .signal:last-child{border-bottom:none}
-.signal-line{
-  width:2px;
-  height:14px;
-  background:var(--red);
-  border-radius:1px;
-  flex-shrink:0;
-}
-.no-signal{
-  font-size:12.5px;
-  color:var(--muted);
-  padding:10px 0;
-}
-
-/* badge */
-.badge{
-  display:inline-flex;
-  align-items:center;
-  gap:5px;
-  font-size:10.5px;
-  font-weight:600;
-  letter-spacing:0.04em;
-  padding:3px 9px;
-  border-radius:3px;
-  text-transform:uppercase;
-}
+.signal-line{width:2px;height:14px;background:var(--red);border-radius:1px;flex-shrink:0}
+.no-signal{font-size:12.5px;color:var(--muted);padding:10px 0}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;letter-spacing:0.04em;padding:3px 9px;border-radius:3px;text-transform:uppercase}
 .badge.pass{background:rgba(16,185,129,0.12);color:var(--green)}
 .badge.fail{background:rgba(255,59,59,0.12);color:var(--red)}
-
-/* hops */
-.hop{
-  display:flex;
-  gap:16px;
-  padding:14px 0;
-  border-bottom:1px solid var(--border);
-}
+.badge.warn{background:rgba(245,158,11,0.12);color:var(--amber)}
+.hop{display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--border)}
 .hop:last-child{border-bottom:none}
-.hop-idx{
-  font-family:var(--mono);
-  font-size:11px;
-  color:var(--muted);
-  width:20px;
-  flex-shrink:0;
-  padding-top:2px;
-}
-.hop-body{}
-.hop-ip{
-  font-family:var(--mono);
-  font-size:13px;
-  color:var(--text);
-  margin-bottom:4px;
-}
+.hop-idx{font-family:var(--mono);font-size:11px;color:var(--muted);width:20px;flex-shrink:0;padding-top:2px}
+.hop-ip{font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:4px}
 .hop-geo{font-size:12px;color:var(--muted);margin-bottom:6px}
 .hop-tags{display:flex;gap:6px;flex-wrap:wrap}
-.tag{
-  font-size:10.5px;
-  font-weight:500;
-  padding:2px 8px;
-  border-radius:3px;
-  letter-spacing:0.03em;
-}
+.tag{font-size:10.5px;font-weight:500;padding:2px 8px;border-radius:3px;letter-spacing:0.03em}
 .tag.proxy{background:rgba(255,59,59,0.12);color:var(--red)}
 .tag.hosting{background:rgba(245,158,11,0.12);color:var(--amber)}
 .tag.isp{background:var(--surface2);color:var(--muted);border:1px solid var(--border2)}
+.url-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.url-item:last-child{border-bottom:none}
+.url-text{font-family:var(--mono);font-size:11px;color:var(--muted);word-break:break-all;margin-bottom:6px}
+.url-flags{display:flex;gap:6px;flex-wrap:wrap}
+.url-flag{font-size:10.5px;padding:2px 8px;border-radius:3px;background:rgba(255,59,59,0.1);color:var(--red)}
 </style>
 </head>
 <body>
 <div class="page">
-
   <div class="header">
     <div class="logo">EFP <span>/</span> Email Forensic Platform</div>
     <div class="status" id="statusLine">ready</div>
   </div>
-
   <div class="input-wrap">
     <div class="field-label">Raw email source</div>
     <textarea id="emailInput" placeholder="Paste complete raw email with headers…"></textarea>
     <button class="btn" id="analyzeBtn" onclick="run()">Analyze</button>
   </div>
-
   <div class="loading" id="loading">analyzing headers and relay path…</div>
-
   <div class="results" id="results">
-
     <div class="score-wrap">
       <div class="score-num" id="scoreNum">—</div>
       <div class="score-right">
@@ -291,116 +92,203 @@ textarea::placeholder{color:var(--muted)}
         <div class="score-sub" id="scoreSub"></div>
       </div>
     </div>
-
+    <div class="section">
+      <div class="section-title">ML Classification</div>
+      <div id="mlEl"></div>
+    </div>
     <div class="section">
       <div class="section-title">Spoofing signals</div>
       <div id="signalsEl"></div>
     </div>
-
     <div class="section">
       <div class="section-title">Headers</div>
       <div id="headersEl"></div>
     </div>
-
     <div class="section">
       <div class="section-title">Authentication</div>
       <div id="authEl"></div>
     </div>
-
+    <div class="section">
+      <div class="section-title">DKIM</div>
+      <div id="dkimEl"></div>
+    </div>
     <div class="section">
       <div class="section-title">Relay path</div>
       <div id="ipsEl"></div>
     </div>
-
+    <div class="section">
+      <div class="section-title">URL analysis</div>
+      <div id="urlsEl"></div>
+    </div>
   </div>
 </div>
-
 <script>
 async function run(){
-  const raw = document.getElementById('emailInput').value.trim();
-  if(!raw) return;
-  const btn = document.getElementById('analyzeBtn');
-  btn.disabled = true;
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('results').style.display = 'none';
-  document.getElementById('statusLine').textContent = 'analyzing…';
+  var raw=document.getElementById('emailInput').value.trim();
+  if(!raw)return;
+  var btn=document.getElementById('analyzeBtn');
+  btn.disabled=true;
+  document.getElementById('loading').style.display='block';
+  document.getElementById('results').style.display='none';
+  document.getElementById('statusLine').textContent='analyzing...';
   try{
-    const r = await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:raw})});
-    const d = await r.json();
+    var r=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:raw})});
+    var d=await r.json();
     render(d);
-    document.getElementById('results').style.display = 'block';
-    document.getElementById('statusLine').textContent = 'complete';
+    document.getElementById('results').style.display='block';
+    document.getElementById('statusLine').textContent='complete';
   }catch(e){
-    document.getElementById('statusLine').textContent = 'error';
+    document.getElementById('statusLine').textContent='error';
   }
-  document.getElementById('loading').style.display = 'none';
-  btn.disabled = false;
+  document.getElementById('loading').style.display='none';
+  btn.disabled=false;
 }
 
 function render(d){
-  const score = d.fraud_score||0;
-  const cls = score>=60?'high':score>=30?'med':'low';
-
-  document.getElementById('scoreNum').className = 'score-num '+cls;
-  document.getElementById('scoreNum').textContent = score;
-  document.getElementById('scoreVerdict').className = 'score-verdict '+cls;
-  document.getElementById('scoreVerdict').textContent = score>=60?'High Risk':score>=30?'Medium Risk':'Low Risk';
-  document.getElementById('scoreSub').textContent = score>=60
+  var score=d.fraud_score||0;
+  var cls=score>=60?'high':score>=30?'med':'low';
+  document.getElementById('scoreNum').className='score-num '+cls;
+  document.getElementById('scoreNum').textContent=score;
+  document.getElementById('scoreVerdict').className='score-verdict '+cls;
+  document.getElementById('scoreVerdict').textContent=score>=60?'High Risk':score>=30?'Medium Risk':'Low Risk';
+  document.getElementById('scoreSub').textContent=score>=60
     ?'Multiple fraud indicators detected. Quarantine and investigate before any user interaction.'
-    :score>=30
-    ?'Anomalies present. Manual review recommended.'
+    :score>=30?'Anomalies present. Manual review recommended.'
     :'No significant threat indicators found.';
 
-  // signals
-  const sigs = d.spoof_signals||[];
-  document.getElementById('signalsEl').innerHTML = sigs.length
-    ? sigs.map(s=>`<div class="signal"><div class="signal-line"></div>${s}</div>`).join('')
-    : `<div class="no-signal">No signals detected</div>`;
+  renderML(d.ml_classification||{});
+  renderSignals(d.spoof_signals||[]);
+  renderHeaders(d.headers||{});
+  renderAuth(d.authentication||{});
+  renderDKIM(d.dkim||{});
+  renderIPs(d.ips||[]);
+  renderURLs(d.url_analysis||{});
+}
 
-  // headers
-  const h = d.headers||{};
-  document.getElementById('headersEl').innerHTML = [
-    dr('From', h.from),
-    dr('Return-Path', h.return_path),
-    dr('Reply-To', h.reply_to||'—'),
-    dr('Subject', h.subject, true),
-    dr('Relay hops', `${(h.received_chain||[]).length} hops`, true),
-  ].join('');
+function renderML(ml){
+  var html='';
+  html+=dr('Method',ml.method||'unknown',true);
+  if(ml.is_phishing){
+    html+=drr('Result','<span class="badge fail">Phishing</span>');
+  } else {
+    html+=drr('Result','<span class="badge pass">Legitimate</span>');
+  }
+  html+=dr('Confidence',ml.confidence?ml.confidence+'%':'—');
+  document.getElementById('mlEl').innerHTML=html;
+}
 
-  // auth
-  const a = d.authentication||{};
-  document.getElementById('authEl').innerHTML = [
-    dr('Domain', a.domain||'—', true),
-    drr('SPF', (a.spf_valid?'<span class="badge pass">pass</span>':'<span class="badge fail">fail</span>')+(a.spf_record?`<br><span style="color:var(--muted);font-size:11px;font-family:var(--mono)">${esc(a.spf_record)}</span>`:'')),
-    drr('DMARC', (a.dmarc_valid?'<span class="badge pass">pass</span>':'<span class="badge fail">fail</span>')+(a.dmarc_policy?`<span style="color:var(--muted);font-size:11px;margin-left:8px">policy: ${esc(a.dmarc_policy)}</span>`:'')),
-  ].join('');
+function renderSignals(sigs){
+  if(sigs.length===0){
+    document.getElementById('signalsEl').innerHTML='<div class="no-signal">No signals detected</div>';
+    return;
+  }
+  var html='';
+  for(var i=0;i<sigs.length;i++){
+    html+='<div class="signal"><div class="signal-line"></div>'+esc(sigs[i])+'</div>';
+  }
+  document.getElementById('signalsEl').innerHTML=html;
+}
 
-  // ips
-  const ips = d.ips||[];
-  document.getElementById('ipsEl').innerHTML = ips.length
-    ? ips.map((g,i)=>`
-        <div class="hop">
-          <div class="hop-idx">0${i+1}</div>
-          <div class="hop-body">
-            <div class="hop-ip">${g.ip}</div>
-            <div class="hop-geo">${[g.city,g.country].filter(Boolean).join(', ')||'Unknown location'}</div>
-            <div class="hop-tags">
-              ${g.isp?`<span class="tag isp">${g.isp}</span>`:''}
-              ${g.proxy?`<span class="tag proxy">Proxy</span>`:''}
-              ${g.hosting?`<span class="tag hosting">Hosting</span>`:''}
-            </div>
-          </div>
-        </div>`).join('')
-    : `<div class="no-signal">No public IPs in relay headers</div>`;
+function renderHeaders(h){
+  var chain=(h.received_chain||[]).length;
+  var html='';
+  html+=dr('From',h.from);
+  html+=dr('Return-Path',h.return_path);
+  html+=dr('Reply-To',h.reply_to||'—');
+  html+=dr('Subject',h.subject,true);
+  html+=dr('Relay hops',chain+' hops detected',true);
+  document.getElementById('headersEl').innerHTML=html;
+}
+
+function renderAuth(a){
+  var spfBadge=a.spf_valid?'<span class="badge pass">pass</span>':'<span class="badge fail">fail</span>';
+  var dmarcBadge=a.dmarc_valid?'<span class="badge pass">pass</span>':'<span class="badge fail">fail</span>';
+  var spfRecord=a.spf_record?'<br><span style="color:var(--muted);font-size:11px;font-family:var(--mono)">'+esc(a.spf_record)+'</span>':'';
+  var dmarcPolicy=a.dmarc_policy?'<span style="color:var(--muted);font-size:11px;margin-left:8px">policy: '+esc(a.dmarc_policy)+'</span>':'';
+  var html='';
+  html+=dr('Domain',a.domain||'—',true);
+  html+=drr('SPF',spfBadge+spfRecord);
+  html+=drr('DMARC',dmarcBadge+dmarcPolicy);
+  document.getElementById('authEl').innerHTML=html;
+}
+
+function renderDKIM(dk){
+  var dkv=dk.verification||{};
+  var dkh=dk.header_info||{};
+  var statusBadge='<span class="badge warn">unknown</span>';
+  if(dkv.status==='pass') statusBadge='<span class="badge pass">pass</span>';
+  if(dkv.status==='fail') statusBadge='<span class="badge fail">fail</span>';
+  var html='';
+  html+=drr('Signature',statusBadge);
+  html+=dr('Detail',dkv.detail||'—',true);
+  html+=dr('Domain',dkh.found?dkh.domain:'Not found',true);
+  html+=dr('Algorithm',dkh.found?dkh.algorithm:'—',true);
+  document.getElementById('dkimEl').innerHTML=html;
+}
+
+function renderIPs(ips){
+  if(ips.length===0){
+    document.getElementById('ipsEl').innerHTML='<div class="no-signal">No public IPs found</div>';
+    return;
+  }
+  var html='';
+  for(var i=0;i<ips.length;i++){
+    var g=ips[i];
+    var idx=i<9?'0'+(i+1):''+(i+1);
+    var geo=[g.city,g.country].filter(Boolean).join(', ')||'Unknown location';
+    var tags='';
+    if(g.isp) tags+='<span class="tag isp">'+esc(g.isp)+'</span>';
+    if(g.proxy) tags+='<span class="tag proxy">Proxy</span>';
+    if(g.hosting) tags+='<span class="tag hosting">Hosting</span>';
+    html+='<div class="hop">';
+    html+='<div class="hop-idx">'+idx+'</div>';
+    html+='<div>';
+    html+='<div class="hop-ip">'+esc(g.ip)+'</div>';
+    html+='<div class="hop-geo">'+esc(geo)+'</div>';
+    html+='<div class="hop-tags">'+tags+'</div>';
+    html+='</div></div>';
+  }
+  document.getElementById('ipsEl').innerHTML=html;
+}
+
+function renderURLs(ua){
+  var urls=ua.urls||[];
+  if(urls.length===0){
+    document.getElementById('urlsEl').innerHTML='<div class="no-signal">No URLs found in email body</div>';
+    return;
+  }
+  var summary=ua.count+' URL'+(ua.count!==1?'s':'')+' found — '+ua.suspicious_count+' suspicious';
+  var html='<div style="font-size:12px;color:var(--muted);margin-bottom:12px">'+summary+'</div>';
+  for(var i=0;i<urls.length;i++){
+    var u=urls[i];
+    var flags='';
+    if(u.is_suspicious && u.flags && u.flags.length>0){
+      for(var j=0;j<u.flags.length;j++){
+        flags+='<span class="url-flag">'+esc(u.flags[j])+'</span>';
+      }
+    } else {
+      flags='<span style="font-size:11px;color:var(--muted)">no flags</span>';
+    }
+    html+='<div class="url-item">';
+    html+='<div class="url-text">'+esc(u.url)+'</div>';
+    html+='<div class="url-flags">'+flags+'</div>';
+    html+='</div>';
+  }
+  document.getElementById('urlsEl').innerHTML=html;
 }
 
 function dr(k,v,plain){
-  return `<div class="drow"><span class="dk">${k}</span><span class="dv${plain?' plain':''}">${esc(v||'—')}</span></div>`;
+  var cls=plain?'dv plain':'dv';
+  return '<div class="drow"><span class="dk">'+k+'</span><span class="'+cls+'">'+esc(v||'—')+'</span></div>';
 }
+
 function drr(k,v){
-  return `<div class="drow"><span class="dk">${k}</span><span class="dv plain">${v}</span></div>`;
+  return '<div class="drow"><span class="dk">'+k+'</span><span class="dv plain">'+v+'</span></div>';
 }
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 </script>
 </body>
 </html>
