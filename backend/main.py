@@ -50,7 +50,8 @@ async def analyze_email(req: EmailRequest):
     try:
         ml = classify_email(result['headers'].get('subject', ''), body)
         result['ml_classification'] = ml
-        if ml['is_phishing'] and ml['confidence'] > 70:
+        # only boost score if ML flags phishing AND other signals already present
+        if ml['is_phishing'] and ml['confidence'] > 90 and result['fraud_score'] > 20:
             result['fraud_score'] = min(result['fraud_score'] + 10, 100)
     except Exception:
         result['ml_classification'] = {
