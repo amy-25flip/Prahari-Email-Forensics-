@@ -1,0 +1,9 @@
+.smtp-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:12px 0; }
+.smtp-fields label { font-size:12px; display:grid; gap:8px; }
+.smtp-fields input { width:100%; min-width:0; background:#11151b; color:#eee; border:1px solid #39424b; padding:10px; border-radius:4px; }
+.interactive-map { height:360px; width:100%; z-index:0; }
+.map-status,.lookup-date { font-size:12px; color:#aab5c3; overflow-wrap:anywhere; }
+.map-status { padding:12px; }
+.lookup-date { display:block; margin-top:6px; }
+.auth-row code { display:block; overflow-wrap:anywhere; white-space:normal; }
+@media(max-width:650px) { .smtp-fields { grid-template-columns:1fr; } .interactive-map { height:300px; } }

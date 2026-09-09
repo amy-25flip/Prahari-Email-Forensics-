@@ -1,267 +1,148 @@
-import { useState } from "react"
-import axios from "axios"
+import { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
+import { ShieldCheck, ScanLine, Network, Files, Upload, ArrowUpRight, ArrowLeft, Download, Search, Trash2, X, LoaderCircle, Fingerprint, Mail, Globe2, Link2, AlertTriangle, ChevronRight, FileText } from 'lucide-react'
+import RelayMap from './RelayMap'
+import Authentication from './Authentication'
+import './index.css'
+import './authentication.css'
+import { FeedStatus, UrlReputation } from './Reputation'
+import Conflicts from './Conflicts'
+import RiskAssessment from './RiskAssessment'
 
-const API = "http://localhost:8000"
+const api = axios.create({ baseURL: '/api', headers: { 'X-Requested-With': 'Email-Threat-Detection' }, timeout: 90000 })
+const tone = score => score >= 60 ? 'danger' : score >= 25 ? 'warn' : 'good'
+const short = text => text.length > 40 ? text.slice(0, 37) + '...' : text
+
+function Badge({ children, color = 'neutral' }) { return <span className={`badge ${color}`}>{children}</span> }
+function Empty({ icon: Icon = Files, children }) { return <div className="empty"><Icon size={28}/><p>{children}</p></div> }
+function Section({ title, meta, children }) { return <section className="section"><div className="section-head"><h3>{title}</h3>{meta}</div>{children}</section> }
 
 export default function App() {
-  const [email, setEmail] = useState("")
+  const [view, setView] = useState('analyze')
+  const [tab, setTab] = useState('evidence')
+  const [email, setEmail] = useState('')
+  const [file, setFile] = useState(null)
+  const [enrich, setEnrich] = useState(false)
+  const [smtpEnabled, setSmtpEnabled] = useState(false)
+  const [smtp, setSmtp] = useState({ client_ip: '', mail_from: '', helo: '' })
   const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState("ready")
+  const [cases, setCases] = useState([])
+  const [samples, setSamples] = useState([])
+  const [health, setHealth] = useState(null)
+  const [graph, setGraph] = useState({ nodes: [], edges: [] })
+  const [edge, setEdge] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [query, setQuery] = useState('')
+  const [verification, setVerification] = useState(null)
+  const input = useRef()
 
-  async function analyze() {
-    if (!email.trim()) return
-    setLoading(true)
-    setResult(null)
-    setStatus("analyzing...")
-    try {
-      const res = await axios.post(`${API}/analyze`, { email })
-      setResult(res.data)
-      setStatus("complete")
-    } catch (e) {
-      setStatus("error — check backend is running")
-    }
-    setLoading(false)
+  const fail = e => setError(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Could not complete the request. Check the backend and retry.')
+  async function refresh() {
+    const response = await api.get('/cases')
+    setCases(response.data)
+    const relations = await api.get('/connections')
+    setGraph(relations.data)
+    setEdge(null)
   }
+  useEffect(() => {
+    let active = true
+    async function init() {
+      try {
+        const h = await api.get('/health')
+        if (!active) return
+        setHealth(h.data)
+        const s = await api.get('/samples')
+        if (!active) return
+        setSamples(s.data)
+        await refresh()
+      } catch (e) { if (active) fail(e) }
+    }
+    init()
+    const timer = setInterval(() => api.get('/health').then(r => active && setHealth(r.data)).catch(() => active && setHealth(null)), 10000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
 
-  const score = result?.fraud_score || 0
-  const riskColor = score >= 60 ? "#FF3B3B" : score >= 30 ? "#F59E0B" : "#10B981"
-  const riskLabel = score >= 60 ? "High Risk" : score >= 30 ? "Medium Risk" : "Low Risk"
-  const riskDesc = score >= 60
-    ? "Multiple fraud indicators detected. Quarantine before any user interaction."
-    : score >= 30
-    ? "Anomalies present. Manual review recommended."
-    : "No significant threat indicators found."
+  async function analyze(sample) {
+    if (busy) return
+    setBusy(true); setError(''); setNotice(''); setVerification(null)
+    try {
+      const headers = enrich && smtpEnabled ? { 'X-SMTP-Context': JSON.stringify(smtp) } : {}
+      let response
+      if (sample) response = await api.post(`/samples/${sample}`)
+      else if (file) response = await api.post(`/analyze?enrich=${enrich}`, await file.arrayBuffer(), { headers: { ...headers, 'Content-Type': 'message/rfc822' } })
+      else response = await api.post(`/analyze?enrich=${enrich}`, { email }, { headers })
+      setResult(response.data); setView('analyze'); setTab('evidence')
+      await refresh()
+    } catch (e) { fail(e) }
+    finally { setBusy(false) }
+  }
+  async function openCase(id) {
+    try { setResult((await api.get(`/cases/${id}`)).data); setView('analyze'); setTab('evidence'); setVerification(null) }
+    catch (e) { fail(e) }
+  }
+  async function remove(id) {
+    try { await api.delete(`/cases/${id}`); if (result?.id === id) setResult(null); setVerification(null); await refresh() }
+    catch (e) { fail(e) }
+  }
+  async function verify() {
+    try { setVerification((await api.get('/verify')).data) } catch (e) { fail(e) }
+  }
+  async function download(fmt) {
+    try {
+      const response = await api.get(`/cases/${result.id}/export/${fmt}`, { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data)
+      const a = document.createElement('a'); a.href = url; a.download = `case-${result.id}.${fmt}`; a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) { fail(e) }
+  }
+  function selectFile(f) {
+    if (!f) return
+    if (f.size > 1048576) { setError('Email exceeds 1 MiB.'); return }
+    if (!f.name.toLowerCase().endsWith('.eml')) { setError('Choose an .eml email file.'); return }
+    setFile(f); setError('')
+  }
+  const filtered = cases.filter(c => `${c.subject} ${c.sender}`.toLowerCase().includes(query.toLowerCase()))
 
-  return (
-    <div style={s.root}>
-      <div style={s.page}>
-        <div style={s.header}>
-          <div style={s.logo}>
-            <span style={s.logoMain}>EFP</span>
-            <span style={s.logoDivider}> / </span>
-            <span style={s.logoSub}>Email Forensic Platform</span>
-          </div>
-          <span style={s.statusBadge}>{status}</span>
-        </div>
-
-        <div style={s.inputSection}>
-          <div style={s.fieldLabel}>Raw Email Source</div>
-          <textarea
-            style={s.textarea}
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="Paste complete raw email with headers..."
-            spellCheck={false}
-          />
-          <button
-            style={{ ...s.btn, opacity: loading ? 0.5 : 1 }}
-            onClick={analyze}
-            disabled={loading}
-          >
-            {loading ? "Analyzing..." : "Analyze"}
-          </button>
-        </div>
-
-        {result && <div style={s.divider} />}
-
-        {result && (
-          <div>
-            <div style={s.scoreBlock}>
-              <div style={{ ...s.scoreNum, color: riskColor }}>{score}</div>
-              <div style={s.scoreMeta}>
-                <div style={{ ...s.scoreVerdict, color: riskColor }}>{riskLabel}</div>
-                <div style={s.scoreDesc}>{riskDesc}</div>
-              </div>
-            </div>
-
-            <div style={s.divider} />
-
-            <Section title="ML Classification">
-              <Row k="Method" v={result.ml_classification?.method || "—"} />
-              <Row k="Result" v={
-                <Pill
-                  text={result.ml_classification?.is_phishing ? "Phishing" : "Legitimate"}
-                  color={result.ml_classification?.is_phishing ? "#FF3B3B" : "#10B981"}
-                />
-              } />
-              <Row k="Confidence" v={(result.ml_classification?.confidence ?? "—") + (result.ml_classification?.confidence ? "%" : "")} />
-            </Section>
-
-            <Section title="Spoofing Signals">
-              {(result.spoof_signals || []).length === 0
-                ? <Muted>No spoofing signals detected</Muted>
-                : (result.spoof_signals || []).map((sig, i) => (
-                  <div key={i} style={sigStyle}>
-                    <div style={sigBar} />{sig}
-                  </div>
-                ))
-              }
-            </Section>
-
-            <Section title="Email Headers">
-              <Row k="From" v={result.headers?.from} mono />
-              <Row k="Return-Path" v={result.headers?.return_path} mono />
-              <Row k="Reply-To" v={result.headers?.reply_to || "Not set"} mono />
-              <Row k="Subject" v={result.headers?.subject} />
-              <Row k="Relay Hops" v={(result.headers?.received_chain?.length || 0) + " hops detected"} />
-            </Section>
-
-            <Section title="Authentication">
-              <Row k="Domain" v={result.authentication?.domain || "—"} />
-              <Row k="SPF" v={<Pill text={result.authentication?.spf_valid ? "pass" : "fail"} color={result.authentication?.spf_valid ? "#10B981" : "#FF3B3B"} />} />
-              <Row k="DMARC" v={<Pill text={result.authentication?.dmarc_valid ? "pass" : "fail"} color={result.authentication?.dmarc_valid ? "#10B981" : "#FF3B3B"} />} />
-              <Row k="SPF Record" v={result.authentication?.spf_record || "None found"} mono />
-              <Row k="DMARC Policy" v={result.authentication?.dmarc_policy || "None found"} />
-            </Section>
-
-            <Section title="DKIM">
-              <Row k="Signature" v={
-                <Pill
-                  text={result.dkim?.verification?.status || "unknown"}
-                  color={result.dkim?.verification?.status === "pass" ? "#10B981" : result.dkim?.verification?.status === "fail" ? "#FF3B3B" : "#F59E0B"}
-                />
-              } />
-              <Row k="Detail" v={result.dkim?.verification?.detail || "—"} />
-              <Row k="Domain" v={result.dkim?.header_info?.found ? result.dkim.header_info.domain : "Not found"} mono />
-              <Row k="Algorithm" v={result.dkim?.header_info?.found ? result.dkim.header_info.algorithm : "—"} />
-            </Section>
-
-            <Section title="Relay Path">
-              {(result.ips || []).length === 0
-                ? <Muted>No public IPs found</Muted>
-                : (result.ips || []).map((g, i) => (
-                  <div key={i} style={s.hop}>
-                    <div style={s.hopIdx}>{String(i+1).padStart(2,"0")}</div>
-                    <div style={{flex:1}}>
-                      <div style={s.hopIP}>{g.ip}</div>
-                      <div style={s.hopGeo}>{[g.city,g.country].filter(Boolean).join(", ")||"Unknown"}</div>
-                      <div style={s.hopTags}>
-                        {g.isp && <Tag text={g.isp} />}
-                        {g.proxy && <Tag text="Proxy" danger />}
-                        {g.hosting && <Tag text="Hosting" warn />}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              }
-            </Section>
-
-            <Section title="URL Analysis">
-              {(result.url_analysis?.urls || []).length === 0
-                ? <Muted>No URLs found</Muted>
-                : <>
-                  <div style={s.urlSummary}>
-                    {result.url_analysis.count} URL{result.url_analysis.count !== 1 ? "s" : ""} found — <span style={{color: result.url_analysis.suspicious_count > 0 ? "#FF3B3B" : "#10B981"}}>{result.url_analysis.suspicious_count} suspicious</span>
-                  </div>
-                  {(result.url_analysis.urls||[]).map((u,i) => (
-                    <div key={i} style={s.urlItem}>
-                      <div style={s.urlText}>{u.url}</div>
-                      <div style={s.hopTags}>
-                        {u.is_suspicious && u.flags?.length > 0
-                          ? u.flags.map((f,j) => <Tag key={j} text={f} danger />)
-                          : <span style={{fontSize:11,color:"#444"}}>no flags</span>
-                        }
-                      </div>
-                    </div>
-                  ))}
-                </>
-              }
-            </Section>
-          </div>
-        )}
-
-        <div style={s.footer}>EFP — Email Forensic Platform · SIH 2026</div>
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <a className="brand" href="#" onClick={e => { e.preventDefault(); setView('analyze') }}><span className="brand-icon"><ShieldCheck size={23}/></span><span>AI-Powered Email<br/>Threat Detection</span></a>
+      <div className="workspace-label">WORKSPACE <span>01</span></div>
+      <nav>{[['analyze', ScanLine, 'Investigate'], ['cases', Files, 'Case history'], ['graph', Network, 'Connections']].map(([key, Icon, title]) => <button key={key} className={view === key ? 'nav-item active' : 'nav-item'} onClick={() => setView(key)}><Icon size={18}/><span>{title}</span>{key === 'cases' && <small>{cases.length}</small>}</button>)}</nav>
+      <div className="sidebar-bottom"><span className="session-dot"/> Private session<small>24-hour retention · {cases.length}/30 cases</small></div>
+    </aside>
+    <main>
+      <header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14}/><strong>{view === 'analyze' ? 'Investigate' : view === 'cases' ? 'Case history' : 'Connections'}</strong></div><span className="model-state"><i className={health?.model === 'ready' ? 'online' : ''}/>{health?.model === 'ready' ? 'BERT ready' : health?.model === 'loading' ? 'BERT loading' : health ? 'AI unavailable' : 'API disconnected'}</span></header>
+      <div className="content">
+        <div className="page-heading"><div><div className="eyebrow">FORENSIC WORKSPACE</div><h1>{view === 'analyze' ? 'Email investigation' : view === 'cases' ? 'Case history' : 'Campaign connections'}</h1></div></div>
+        {error && <div className="message error" role="alert"><AlertTriangle size={18}/><span>{error}</span><button title="Dismiss error" onClick={() => setError('')}><X size={16}/></button></div>}
+        {notice && <div className="message">{notice}</div>}
+        <div className="feed-strip"><ShieldCheck size={15}/><FeedStatus feed={result && view === 'analyze' ? result.reputation_feed : health?.reputation}/></div>
+        {view === 'analyze' && <>
+          {!result ? <div className="intake-layout"><section className="intake"><div className="section-head"><h2>New investigation</h2><Fingerprint size={20}/></div><div className="input-tabs"><span>Raw email</span><button onClick={() => input.current.click()}><Upload size={15}/>Upload .eml</button><input ref={input} type="file" accept=".eml" hidden onChange={e => selectFile(e.target.files[0])}/></div>
+            {file ? <div className="selected-file"><FileText size={32}/><strong>{file.name}</strong><small>{(file.size / 1024).toFixed(1)} KiB · original bytes preserved</small><button title="Remove file" onClick={() => { setFile(null); input.current.value = '' }}><X size={18}/></button></div> : <textarea aria-label="Raw email source" value={email} onChange={e => setEmail(e.target.value)} placeholder={'From: sender@example.com\nTo: analyst@college.edu\nSubject: ...\nReceived: ...\n\nEmail body'} spellCheck={false}/>}
+            <label className="enrichment"><input type="checkbox" checked={enrich} onChange={e => setEnrich(e.target.checked)}/><span>External enrichment<small>Queries DNS and sends public relay IPs to ipwho.is. Email bodies stay on this server.</small></span></label>
+            {enrich && <div className="smtp-context"><label className="enrichment"><input type="checkbox" checked={smtpEnabled} onChange={e => setSmtpEnabled(e.target.checked)}/><span>Receiver SMTP context<small>Analyst-supplied values from receiver logs; email headers alone are not trusted.</small></span></label>{smtpEnabled && <div className="smtp-fields">{[['client_ip', 'Connecting IP'], ['mail_from', 'Envelope MAIL FROM'], ['helo', 'HELO domain']].map(([key, label]) => <label key={key}>{label}<input value={smtp[key]} onChange={e => setSmtp({ ...smtp, [key]: e.target.value })}/></label>)}</div>}</div>}
+            <div className="input-footer"><span><ShieldCheck size={14}/> Session-isolated storage</span><button className="primary" disabled={busy || (!file && !email.trim()) || (enrich && smtpEnabled && Object.values(smtp).some(v => !v.trim()))} onClick={() => analyze()}>{busy ? <LoaderCircle className="spin" size={17}/> : <ScanLine size={17}/>} {busy ? 'Analyzing' : 'Analyze email'}</button></div></section>
+            <aside className="sample-list"><div className="section-head"><h3>Sample investigations</h3></div><Badge>Controlled fixtures</Badge>{samples.map((s, i) => <button disabled={busy} className="sample" key={s.id} onClick={() => analyze(s.id)}><span className="sample-number">0{i + 1}</span><span><strong>{s.title}</strong><small>{s.kind}</small></span><ArrowUpRight size={17}/></button>)}<div className="sample-note">Reserved domains and documentation IPs. Samples are analyzed by the same pipeline; no real-world attribution is implied.</div></aside></div> : <>
+            <div className="case-toolbar"><button onClick={() => { setResult(null); setVerification(null) }}><ArrowLeft size={16}/> New investigation</button><span className="mono">CASE {result.id}</span><div className="exports">{['pdf', 'json', 'csv'].map(fmt => <button key={fmt} onClick={() => download(fmt)} title={`Download ${fmt.toUpperCase()} report`}><Download size={14}/>{fmt.toUpperCase()}</button>)}</div></div>
+            <div className="subject-line"><Mail size={22}/><div><h2>{result.subject}</h2><p>{result.sender}</p></div>{result.sample && <Badge>Fixture</Badge>}</div>
+            <div className="metrics"><div className={`risk-metric ${tone(result.score)}`}><div className="gauge" style={{ '--progress': `${result.score}%` }}><strong>{result.score}<small>/100</small></strong></div><div><span className="metric-label">EVIDENCE SCORE</span><h2>{result.risk}</h2><small>Grouped heuristic score</small></div></div><div><span className="metric-label">NLP CLASSIFICATION</span><h2>{result.ml.label}</h2><small>{result.ml.confidence != null ? `${result.ml.confidence}% model probability · uncalibrated` : 'No model prediction available'}</small></div><div><span className="metric-label">ORIGIN CERTAINTY</span><h2 className="warn-text">Unverified</h2><small>{result.hops.length} header-reported relay hops</small></div><div><span className="metric-label">ANALYSIS TIME</span><h2>{(result.elapsed_ms / 1000).toFixed(2)}<small> s</small></h2><small>{result.live_dns ? 'External enrichment enabled' : 'Local checks only'}</small></div></div>
+            <RiskAssessment result={result}/>
+            <div className="view-tabs">{[['evidence', 'Evidence'], ['relay', 'Relay path'], ['urls', `URLs (${result.urls.length})`], ['source', 'Source & attachments']].map(([key, name]) => <button className={tab === key ? 'selected' : ''} key={key} onClick={() => setTab(key)}>{name}</button>)}</div>
+            {tab === 'evidence' && <Conflicts result={result}/>}
+            {tab === 'evidence' && <div className="evidence-layout"><Section title="Detection evidence" meta={<Badge>{result.findings.length} findings</Badge>}>{result.findings.length ? result.findings.map((f, i) => <div className="finding" key={i}><AlertTriangle size={17}/><div><strong>{f.title}</strong><p>{f.detail}</p><small>{f.group}</small></div><span className="points">+{f.points}</span></div>) : <Empty icon={ShieldCheck}>No configured detection rules triggered. This is not proof that the email is safe.</Empty>}<div className="group-caps">Group totals after caps: {Object.entries(result.groups).map(([key, value]) => `${key} ${value}`).join(' · ')}</div></Section><div><Authentication values={result.authentication}/><Section title="Evidence integrity"><div className="hash mono">{result.sha256}</div><button className="secondary" onClick={verify}><Fingerprint size={16}/> Verify stored evidence</button>{verification && <div className={`verification ${verification.valid ? 'good' : 'danger'}`}><strong>{verification.valid ? 'Integrity checks passed' : 'Integrity check failed'}</strong><p>{verification.detail}</p></div>}</Section></div></div>}
+            {tab === 'relay' && <><RelayMap result={result}/><Section title="Header-reported relay sequence">{result.hops.length ? result.hops.map(h => <div className="hop" key={h.index}><span>{String(h.index).padStart(2, '0')}</span><div><strong className="mono">{h.ips.join(' / ') || 'No IP in this header'}</strong><p className="mono">{h.raw}</p><Badge color="warn">{h.trust}</Badge></div></div>) : <Empty icon={Globe2}>No Received headers supplied.</Empty>}</Section></>}
+            {tab === 'urls' && <Section title="Extracted links" meta={<Badge>Local reputation matching</Badge>}>{result.urls.length ? result.urls.map((u, i) => <div className="url-row" key={i}><Link2 size={18}/><div><strong className="mono">{u.url}</strong><p>{u.domain} · {u.protocol} · {u.length} characters</p><div className="tags">{u.reasons.length ? u.reasons.map(r => <Badge key={r} color="warn">{r}</Badge>) : <Badge>No structural flags</Badge>}</div><UrlReputation value={u.reputation}/></div><span className={`url-score ${tone(u.score)}`} title="URL structural score">{u.score}</span></div>) : <Empty icon={Link2}>No HTTP or HTTPS links found.</Empty>}</Section>}
+            {tab === 'source' && <><Section title="Attachment inventory">{result.attachments.length ? result.attachments.map((a, i) => <div className="attachment" key={i}><FileText size={20}/><div><strong>{a.name}</strong><p>{a.type} · {a.size} bytes</p><small className="mono">{a.sha256}</small></div><Badge color={a.warning ? 'warn' : 'neutral'}>{a.warning ? 'Review extension' : 'Not malware-scanned'}</Badge></div>) : <Empty icon={FileText}>No attachments found.</Empty>}</Section><Section title="Decoded message"><pre>{result.body || 'No text body found.'}</pre></Section><Section title="Email headers">{result.headers.map((h, i) => <div className="header-row" key={i}><strong>{h.name}</strong><span className="mono">{h.value}</span></div>)}</Section></>}
+            <details className="limitations"><summary>Scope & limitations</summary><ul>{result.limitations.map(l => <li key={l}>{l}</li>)}<li>{result.ml.detail}</li></ul></details>
+          </>}
+        </>}
+        {view === 'cases' && <><div className="list-tools"><label className="search"><Search size={17}/><input aria-label="Search cases" placeholder="Search sender or subject" value={query} onChange={e => setQuery(e.target.value)}/></label><Badge>{cases.length} investigations</Badge></div><div className="case-list">{filtered.length ? filtered.map(c => <div className="case-row" key={c.id}><span className={`case-score ${tone(c.score)}`}>{c.score}</span><button className="case-open" onClick={() => openCase(c.id)}><strong>{c.subject}</strong><small>{c.sender}</small></button><Badge>{c.sample ? 'Fixture' : 'Uploaded'}</Badge><button title="Delete case and original email" onClick={() => remove(c.id)}><Trash2 size={17}/></button></div>) : <Empty>No matching investigations.</Empty>}</div></>}
+        {view === 'graph' && <><div className="graph-stats"><Badge>{graph.nodes.length} emails</Badge><Badge color="good">{graph.edges.length} relationships</Badge><span>Candidate connections · analyst review required</span></div>{graph.nodes.length ? <><div className="graph"><svg viewBox="0 0 850 420" role="img" aria-label="Email relationship graph">{graph.edges.map((e, i) => { const pos = id => { const index = graph.nodes.findIndex(n => n.id === id); const angle = index * Math.PI * 2 / graph.nodes.length - Math.PI / 2; return [425 + Math.cos(angle) * 260, 210 + Math.sin(angle) * 135] }; const a = pos(e.source), b = pos(e.target); return <g key={i} onClick={() => setEdge(e)}><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={edge === e ? '#a3e635' : '#657b49'} strokeWidth="2"/><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="transparent" strokeWidth="18" className="clickable"/><title>{e.evidence.map(x => x.value).join(', ')}</title></g>})}{graph.nodes.map((n, i) => { const angle = i * Math.PI * 2 / graph.nodes.length - Math.PI / 2; const x = 425 + Math.cos(angle) * 260, y = 210 + Math.sin(angle) * 135; return <g key={n.id} className="clickable" onClick={() => openCase(n.id)}><circle cx={x} cy={y} r="24" fill="#141a20" stroke={n.score >= 60 ? '#ef4444' : '#a3e635'} strokeWidth="2"/><text x={x} y={y + 5} textAnchor="middle" fill="#f1f5f9" fontSize="13">{n.score}</text><text x={x} y={y + 43} textAnchor="middle" fill="#c1c8d1" fontSize="11">{short(n.subject).slice(0, 30)}</text><title>{n.subject}</title></g> })}</svg></div><Section title="Relationship evidence">{graph.edges.length ? graph.edges.map((e, i) => <button className={`edge-row ${edge === e ? 'chosen' : ''}`} key={i} onClick={() => setEdge(e)}><Network size={18}/><span><strong>{short(graph.nodes.find(n => n.id === e.source).subject)} ↔ {short(graph.nodes.find(n => n.id === e.target).subject)}</strong>{e.evidence.map((v, j) => <small className="mono" key={j}>{v.type}: {v.value}</small>)}</span><ChevronRight size={18}/></button>) : <Empty icon={Network}>No shared distinctive indicators found.</Empty>}{edge && <div className="verification"><strong>{edge.assessment}</strong><p>A shared indicator supports investigation, not a confirmed campaign attribution.</p></div>}</Section></> : <Empty icon={Network}>Analyze emails to build their relationship graph.</Empty>}</>}
+        <footer><span><ShieldCheck size={14}/> AI-Powered Email Threat Detection</span><span>Evidence first. Attribution with uncertainty.</span></footer>
       </div>
-    </div>
-  )
-}
-
-function Section({ title, children }) {
-  return (
-    <div style={s.section}>
-      <div style={s.sectionTitle}>{title}</div>
-      {children}
-    </div>
-  )
-}
-
-function Row({ k, v, mono }) {
-  return (
-    <div style={s.row}>
-      <span style={s.rowKey}>{k}</span>
-      <span style={mono ? s.rowValMono : s.rowVal}>{v || "—"}</span>
-    </div>
-  )
-}
-
-function Pill({ text, color }) {
-  return (
-    <span style={{
-      display:"inline-flex", alignItems:"center",
-      fontSize:10, fontWeight:700, letterSpacing:"0.06em",
-      textTransform:"uppercase", padding:"3px 10px",
-      borderRadius:3, background:color+"18", color,
-      border:`1px solid ${color}33`,
-    }}>{text}</span>
-  )
-}
-
-function Tag({ text, danger, warn }) {
-  const color = danger ? "#FF3B3B" : warn ? "#F59E0B" : "#555"
-  const bg = danger ? "#FF3B3B15" : warn ? "#F59E0B15" : "#1a1a1a"
-  return (
-    <span style={{
-      fontSize:10, fontWeight:500, padding:"2px 8px",
-      borderRadius:3, background:bg, color,
-      border:`1px solid ${color}33`,
-    }}>{text}</span>
-  )
-}
-
-function Muted({ children }) {
-  return <div style={{fontSize:12.5, color:"#444", padding:"8px 0"}}>{children}</div>
-}
-
-const sigStyle = {
-  display:"flex", alignItems:"center", gap:12,
-  padding:"11px 0", borderBottom:"1px solid #1c1c1c",
-  fontSize:12.5, color:"#FF3B3B",
-}
-const sigBar = { width:2, height:14, background:"#FF3B3B", borderRadius:1, flexShrink:0 }
-
-const s = {
-  root:{ background:"#080808", minHeight:"100vh", width:"100%" },
-  page:{ maxWidth:740, margin:"0 auto", padding:"52px 32px 80px", fontFamily:"'Inter',sans-serif", color:"#E8E8E8" },
-  header:{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:52, paddingBottom:20, borderBottom:"1px solid #1c1c1c" },
-  logo:{ display:"flex", alignItems:"center" },
-  logoMain:{ fontSize:13, fontWeight:700, letterSpacing:"0.1em", color:"#E8E8E8", textTransform:"uppercase" },
-  logoDivider:{ fontSize:13, color:"#333", margin:"0 8px" },
-  logoSub:{ fontSize:13, fontWeight:400, letterSpacing:"0.06em", color:"#444", textTransform:"uppercase" },
-  statusBadge:{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:"#333", letterSpacing:"0.04em" },
-  inputSection:{ marginBottom:36 },
-  fieldLabel:{ fontSize:10, fontWeight:600, color:"#444", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:10 },
-  textarea:{ width:"100%", height:168, fontFamily:"'JetBrains Mono',monospace", fontSize:11.5, lineHeight:1.8, color:"#C8C8C8", background:"#0e0e0e", border:"1px solid #1e1e1e", borderRadius:5, padding:"14px 16px", resize:"vertical", outline:"none" },
-  btn:{ marginTop:12, background:"#E8E8E8", color:"#080808", border:"none", padding:"10px 28px", fontFamily:"'Inter',sans-serif", fontSize:12, fontWeight:700, letterSpacing:"0.05em", textTransform:"uppercase", borderRadius:4, cursor:"pointer" },
-  divider:{ height:1, background:"#1a1a1a", margin:"36px 0" },
-  scoreBlock:{ display:"flex", alignItems:"flex-end", gap:28, padding:"8px 0 32px" },
-  scoreNum:{ fontSize:100, fontWeight:200, lineHeight:1, letterSpacing:"-0.06em", fontFamily:"'Inter',sans-serif", minWidth:140 },
-  scoreMeta:{ paddingBottom:8 },
-  scoreVerdict:{ fontSize:14, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 },
-  scoreDesc:{ fontSize:12.5, color:"#555", lineHeight:1.6, maxWidth:360 },
-  section:{ marginBottom:36 },
-  sectionTitle:{ fontSize:10, fontWeight:600, letterSpacing:"0.1em", textTransform:"uppercase", color:"#444", marginBottom:14, paddingBottom:10, borderBottom:"1px solid #1a1a1a" },
-  row:{ display:"flex", gap:20, padding:"10px 0", borderBottom:"1px solid #141414", alignItems:"flex-start" },
-  rowKey:{ width:140, flexShrink:0, fontSize:11, color:"#444", paddingTop:1 },
-  rowVal:{ fontSize:13, color:"#C8C8C8", lineHeight:1.5, flex:1 },
-  rowValMono:{ fontFamily:"'JetBrains Mono',monospace", fontSize:11.5, color:"#C8C8C8", lineHeight:1.6, flex:1, wordBreak:"break-all" },
-  hop:{ display:"flex", gap:18, padding:"14px 0", borderBottom:"1px solid #141414" },
-  hopIdx:{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, color:"#333", width:22, flexShrink:0, paddingTop:3 },
-  hopIP:{ fontFamily:"'JetBrains Mono',monospace", fontSize:13, color:"#C8C8C8", marginBottom:4, fontWeight:500 },
-  hopGeo:{ fontSize:11.5, color:"#555", marginBottom:8 },
-  hopTags:{ display:"flex", gap:6, flexWrap:"wrap" },
-  urlSummary:{ fontSize:12, color:"#555", marginBottom:14, paddingBottom:10, borderBottom:"1px solid #141414" },
-  urlItem:{ padding:"12px 0", borderBottom:"1px solid #141414" },
-  urlText:{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:"#444", wordBreak:"break-all", marginBottom:8, lineHeight:1.6 },
-  footer:{ marginTop:60, paddingTop:20, borderTop:"1px solid #141414", fontSize:11, color:"#2a2a2a", letterSpacing:"0.04em" },
+    </main>
+  </div>
 }
