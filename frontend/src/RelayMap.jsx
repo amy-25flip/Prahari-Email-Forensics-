@@ -9,7 +9,7 @@ const projection = geoNaturalEarth1().fitExtent([[12, 8], [788, 355]], feature(l
 const path = geoPath(projection)(feature(land, land.objects.land))
 
 export default function RelayMap({ result }) {
-  const [interactive, setInteractive] = useState(false)
+  const [interactive, setInteractive] = useState(true)
   const [tileError, setTileError] = useState(false)
   const container = useRef(null)
   const positions = (result.geo || []).filter(g => Number.isFinite(g.lat) && Number.isFinite(g.lon))

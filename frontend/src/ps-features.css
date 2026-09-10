@@ -8,8 +8,8 @@
 .ps-section label{display:block;margin:12px 0;color:#bbc4d1}
 .ps-section textarea{height:90px;min-height:80px;margin-top:8px}
 .ps-section .exports{flex-wrap:wrap;margin-top:14px}
-.attribution-score{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:8px;border:1px solid #343947;background:#11141c;width:fit-content;margin-bottom:6px}
-.attribution-score strong{font-size:28px;color:#e6e8ef}
+.attribution-score{display:flex;align-items:center;gap:16px;padding:18px 22px;border-radius:14px;border:1px solid #343947;background:linear-gradient(135deg,#11141c,#141824);width:fit-content;margin-bottom:6px;box-shadow:0 16px 40px -24px rgba(0,0,0,.8)}
+.attribution-score strong{font-size:34px;color:#e6e8ef;font-weight:700}
 .attribution-score strong small{font-size:14px;color:#7c8797;font-weight:400}
 .attribution-score span{font-size:12px;letter-spacing:.05em;font-weight:600;padding:4px 10px;border-radius:20px}
 .attribution-score.good span{color:#b0e76b;background:#a3e6350c;border:1px solid #a3e63530}
