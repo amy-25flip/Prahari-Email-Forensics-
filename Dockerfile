@@ -13,7 +13,7 @@ ENV HF_HOME=/opt/model-cache HF_HUB_DISABLE_PROGRESS_BARS=1
 RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ealvaradob/bert-finetuned-phishing', allow_patterns=['*.json','*.txt','*.safetensors'])"
 COPY backend/ ./
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
-RUN useradd --create-home appuser && mkdir /data && chown appuser /data && chmod -R a+rX /opt/model-cache
+RUN useradd --uid 1000 --create-home appuser && mkdir /data && chown appuser /data && chmod -R a+rX /opt/model-cache
 ENV DATA_DIR=/data COOKIE_SECURE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PORT=8000
 USER appuser
 EXPOSE 8000
