@@ -19,6 +19,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(reputation, 'CACHE_PATH', tmp_path / 'feed.json')
     monkeypatch.setattr(reputation, '_snapshot', None)
     main.limits.clear()
+    main.peer_limiter.reset()
     with TestClient(main.app) as c:
         c.get('/api/health')
         yield c

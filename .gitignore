@@ -8,6 +8,9 @@ frontend/.vite/
 *.log
 *.err
 .pytest_cache/
+backend/.pytest_tmp/
 .env
 .env.*
 *.eml
+backend/serve_local.py
+.claude/

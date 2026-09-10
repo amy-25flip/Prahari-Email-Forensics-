@@ -22,7 +22,7 @@ def load():
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
         torch.set_num_threads(min(4, os.cpu_count() or 1))
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, local_files_only=True, trust_remote_code=False)
         candidate = AutoModelForSequenceClassification.from_pretrained(MODEL_ID, local_files_only=True)
         labels = {str(v).lower(): int(k) for k, v in candidate.config.id2label.items()}
         if not any('phish' in label for label in labels):

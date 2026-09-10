@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Gmail Guard</title>
+<style>
+  body{width:320px;font-family:Arial,sans-serif;font-size:13px;padding:12px;color:#1a1a1a}
+  h1{font-size:14px;margin:0 0 10px}
+  label{display:block;font-size:11px;color:#555;margin-bottom:3px}
+  input{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #ccc;border-radius:4px;margin-bottom:8px}
+  button{width:100%;padding:7px;border:0;border-radius:4px;background:#1a73e8;color:#fff;font-weight:600;cursor:pointer}
+  button:hover{background:#1558b0}
+  .status{font-size:11px;margin:6px 0 10px;color:#555}
+  .history{max-height:220px;overflow-y:auto;border-top:1px solid #eee;margin-top:10px;padding-top:8px}
+  .row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #f2f2f2}
+  .row strong{font-size:12px}
+  .badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px}
+  .danger{background:#fdecea;color:#7a1f14}
+  .warn{background:#fff4e5;color:#7a4a00}
+  .good{background:#eaf7e6;color:#1f5c1f}
+  .empty{color:#888;font-style:italic;padding:8px 0}
+</style>
+</head>
+<body>
+  <h1>Gmail Guard — Email Threat Detection</h1>
+  <label for="backend">Backend URL</label>
+  <input id="backend" placeholder="http://localhost:8000">
+  <button id="save">Save</button>
+  <div class="status" id="status"></div>
+  <div class="history" id="history"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+.etd-banner{font-family:Arial,sans-serif;font-size:13px;border-radius:8px;padding:10px 14px;margin:8px 0;border:1px solid;line-height:1.5}
+.etd-banner-danger{background:#fdecea;border-color:#f5c6c0;color:#7a1f14}
+.etd-banner-warn{background:#fff4e5;border-color:#f9d7a0;color:#7a4a00}
+.etd-banner-good{background:#eaf7e6;border-color:#c3e6c3;color:#1f5c1f}
+.etd-banner-neutral{background:#eef1f5;border-color:#d4d9e0;color:#333}
+.etd-banner-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.etd-pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(0,0,0,.06)}
+.etd-findings{margin:4px 0 4px 18px;padding:0}
+.etd-findings-empty{font-style:italic;opacity:.8;margin:4px 0}
+.etd-banner-foot{font-size:11px;opacity:.75;margin-top:4px}
+.etd-status{position:fixed;bottom:14px;right:14px;z-index:9999;font-family:Arial,sans-serif;font-size:11px;padding:6px 10px;border-radius:14px;background:#222;color:#fff;opacity:.85;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.etd-status-busy{background:#8a6d00}
+.etd-status-error{background:#8a1f14}

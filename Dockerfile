@@ -8,7 +8,7 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app/backend
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt
 ENV HF_HOME=/opt/model-cache HF_HUB_DISABLE_PROGRESS_BARS=1
 RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ealvaradob/bert-finetuned-phishing', allow_patterns=['*.json','*.txt','*.safetensors'])"
 COPY backend/ ./

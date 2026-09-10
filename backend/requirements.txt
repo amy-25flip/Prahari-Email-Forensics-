@@ -4,8 +4,8 @@ dnspython==2.8.0
 dkimpy==1.1.8
 pyspf==2.0.14
 publicsuffixlist==1.0.2.20260902
-requests==2.32.5
+requests==2.34.2
 fpdf2==2.8.8
-transformers==5.2.0
-torch==2.10.0
-safetensors==0.7.0
+transformers==5.16.1
+torch==2.14.0
+safetensors==0.8.0

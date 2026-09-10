@@ -1,4 +1,5 @@
 import csv
+import asyncio
 import io
 import json
 import os
@@ -14,8 +15,10 @@ import engine
 import local_model
 import store
 import reputation
+import siem
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, ValidationError, field_validator
 from samples import SAMPLES
+from request_limits import PeerLimiter
 
 
 @asynccontextmanager
@@ -43,18 +46,27 @@ app = FastAPI(title='AI-Powered Email Threat Detection', lifespan=lifespan)
 limits = defaultdict(deque)
 slots = threading.BoundedSemaphore(2)
 rate_lock = threading.Lock()
+peer_limiter = PeerLimiter()
 
 
 @app.middleware('http')
 async def boundary(request: Request, call_next):
     if request.method in ('POST', 'DELETE') and request.headers.get('x-requested-with') != 'Email-Threat-Detection':
         return JSONResponse({'detail': 'Missing application request header'}, status_code=403)
+    if request.method in ('POST', 'DELETE'):
+        peer = request.client.host if request.client else 'unknown'
+        if not peer_limiter.allow(peer):
+            return JSONResponse({'detail': 'Peer request limit reached. Retry in one minute.'}, status_code=429, headers={'Retry-After':'60'})
     if request.method == 'POST':
         chunks, size = [], 0
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > 1500000: return JSONResponse({'detail': 'Upload exceeds email size limit'}, status_code=413)
-            chunks.append(chunk)
+        try:
+            async with asyncio.timeout(15):
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > 1500000: return JSONResponse({'detail': 'Upload exceeds email size limit'}, status_code=413)
+                    chunks.append(chunk)
+        except TimeoutError:
+            return JSONResponse({'detail': 'Upload timed out.'}, status_code=408)
         request._body = b''.join(chunks)
     if request.url.path in ('/api/health', '/api/ready') or not request.url.path.startswith('/api/'):
         return await call_next(request)
@@ -64,7 +76,7 @@ async def boundary(request: Request, call_next):
         return JSONResponse({'detail': 'Server capacity reached. Please retry later.'}, status_code=503)
     request.state.sid = sid
     response = await call_next(request)
-    if cookie: response.set_cookie('efp_session', cookie, httponly=True, samesite='strict', secure=os.getenv('COOKIE_SECURE') == '1', max_age=86400)
+    if cookie: response.set_cookie('efp_session', cookie, httponly=True, samesite='strict', secure=os.getenv('COOKIE_SECURE') == '1', max_age=store.RETENTION_SECONDS)
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['X-Frame-Options'] = 'DENY'
@@ -72,9 +84,23 @@ async def boundary(request: Request, call_next):
     return response
 
 
+@app.middleware('http')
+async def response_security(request: Request, call_next):
+    response = await call_next(request)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    if request.url.path.startswith('/api/'): response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.get('/api/health')
 def health():
-    return {'status': 'ready', 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': 24, 'reputation': reputation.status()}
+    import ip_reputation, attachment_reputation
+    return {'status': 'ready', 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': store.RETENTION_SECONDS / 3600,
+            'reputation': reputation.status(),
+            'ip_reputation': {'configured': bool(ip_reputation.config())},
+            'attachment_reputation': {'configured': bool(attachment_reputation.config())}}
 
 
 @app.get('/api/ready')
@@ -84,6 +110,24 @@ def ready():
 
 @app.get('/api/samples')
 def samples(): return SAMPLES
+
+
+@app.get('/api/siem')
+def siem_status(): return siem.status()
+
+
+@app.post('/api/cases/{cid}/siem')
+def send_siem(cid: str, request: Request):
+    report = get_case(cid, request)
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')
+    try:
+        receipt = siem.deliver(report)
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, request.state.sid, {'action': 'siem_delivery', 'id': cid, **receipt})
+        return receipt
+    except ValueError as exc: raise HTTPException(503, str(exc)) from exc
+    finally: slots.release()
 
 
 class SMTPContext(BaseModel):
@@ -109,7 +153,8 @@ class SMTPContext(BaseModel):
         return value.lower().rstrip('.')
 
 
-def execute(request, raw, source, live, sample=False, context=None):
+def execute(request, raw, source, live, sample=False, context=None, receiver=None):
+    started = time.perf_counter()
     sid, now = request.state.sid, time.time()
     with rate_lock:
         for key in list(limits):
@@ -121,6 +166,29 @@ def execute(request, raw, source, live, sample=False, context=None):
     if not slots.acquire(blocking=False): raise HTTPException(429, 'Analysis workers busy. Please retry shortly.')
     try:
         result = engine.analyze(raw, source, live, context)
+        import ps_assessment
+        result['assessment'] = ps_assessment.inspect(raw, result)
+        import origin_assessment
+        if receiver and live and not any(g.get('ip') == context['client_ip'] for g in result['geo']):
+            from geolocation import locate
+            result['geo'].append(locate(context['client_ip']))
+        result['assessment']['origin_evidence'] = origin_assessment.assess(result, context, receiver)
+        if receiver:
+            result['assessment']['origin_confidence'] = 'Authenticated receiver observation; original sender and human location are not established.'
+            result['origin'] = 'Receiver-attested ingress'
+        import infrastructure
+        result['assessment']['infrastructure'] = infrastructure.assess(result['hops'], live)
+        import ip_reputation
+        result['assessment']['ip_reputation'] = ip_reputation.enrich(result['hops'], live)
+        import attachment_reputation
+        result['assessment']['attachment_reputation'] = attachment_reputation.enrich(result['attachments'], live)
+        import attribution
+        result['assessment']['attribution'] = attribution.assess(result)
+        if result['assessment']['checks'] and result['triage']['priority'] in ('routine', 'incomplete'):
+            result['triage'].update(priority='review', label='Review required',
+                                   reasons=['Supplemental header, identity or attachment checks require review.'],
+                                   action='Review the static findings before opening attachments or approving sensitive requests.')
+        result['elapsed_ms'] = round((time.perf_counter() - started) * 1000)
         result['sample'] = sample
         result['fraud_score'] = result['score']
         return store.save(sid, result, raw)
@@ -146,7 +214,18 @@ async def analyze_request(request: Request):
         try: content = json.loads(content)['email'].encode('utf-8')
         except (ValueError, KeyError, AttributeError, TypeError): raise HTTPException(400, 'Expected JSON with an email string.')
         source = 'paste'
-    return await run_in_threadpool(execute, request, content, source, live, False, context)
+    receiver = None
+    evidence = request.headers.get('x-receiver-evidence')
+    if evidence:
+        if source != 'upload': raise HTTPException(400, 'Receiver evidence requires original .eml bytes')
+        try:
+            import receiver_evidence
+            receiver = receiver_evidence.verify(evidence, content)
+            verified_context = SMTPContext.model_validate(receiver['smtp']).model_dump(mode='json')
+            if context is not None and context != verified_context: raise ValueError('Conflicting context')
+            context = verified_context
+        except (ValueError, ValidationError): raise HTTPException(400, 'Receiver evidence could not be verified against the email and configured receiver')
+    return await run_in_threadpool(execute, request, content, source, live, False, context, receiver)
 
 
 @app.post('/api/samples/{sample_id}')
@@ -178,6 +257,71 @@ def delete_case(cid: str, request: Request):
 def connections(request: Request): return store.connections(request.state.sid)
 
 
+@app.get('/api/campaigns')
+def campaign_groups(request: Request):
+    import campaigns
+    return campaigns.build(store.all_cases(request.state.sid))
+
+
+class Checkpoint(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    schema_version: int = Field(alias='schema', ge=1, le=1, strict=True)
+    session_fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
+    event_count: int = Field(ge=0, le=1000000, strict=True)
+    head: str = Field(pattern=r'^[a-f0-9]{64}$')
+    created_at: float = Field(ge=0, allow_inf_nan=False)
+    scope: str = Field(max_length=300)
+
+
+class ReviewDecision(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    decision: str = Field(pattern=r'^(hold|approved)$')
+    note: str = Field(min_length=20, max_length=1000)
+    acknowledged: bool = Field(strict=True)
+
+
+@app.get('/api/cases/{cid}/review')
+def review_status(cid: str, request: Request):
+    get_case(cid, request)
+    with store.connect() as db:
+        for row in db.execute('SELECT payload FROM events WHERE session=? ORDER BY seq DESC', (request.state.sid,)):
+            event = json.loads(row['payload'])
+            if event.get('action') == 'review' and event.get('id') == cid: return event
+    return {'decision': 'pending'}
+
+
+@app.post('/api/cases/{cid}/review')
+def record_review(cid: str, payload: ReviewDecision, request: Request):
+    report = get_case(cid, request)
+    elevated = report['triage']['priority'] != 'routine'
+    if payload.decision == 'approved' and elevated and not payload.acknowledged:
+        raise HTTPException(409, 'Acknowledge the findings before recording approval.')
+    if len(payload.note.strip()) < 20: raise HTTPException(400, 'Provide a substantive review note.')
+    event = {'action': 'review', 'id': cid, 'at': time.time(), **payload.model_dump(),
+             'scope': 'Session analyst decision only; no mail delivery, release or external action performed.'}
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT id FROM cases WHERE id=? AND session=?', (cid, request.state.sid)).fetchone():
+            raise HTTPException(404, 'Case no longer exists')
+        store.append(db, request.state.sid, event)
+    return event
+
+
+@app.get('/api/checkpoint')
+def checkpoint(request: Request):
+    import checkpoints
+    try:
+        return checkpoints.snapshot(request.state.sid)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post('/api/checkpoint/verify')
+def verify_checkpoint(payload: Checkpoint, request: Request):
+    import checkpoints
+    return checkpoints.verify(request.state.sid, payload.model_dump(by_alias=True))
+
+
 @app.get('/api/verify')
 def verify(request: Request): return store.verify(request.state.sid)
 
@@ -185,7 +329,13 @@ def verify(request: Request): return store.verify(request.state.sid)
 @app.get('/api/cases/{cid}/export/{fmt}')
 def export(cid: str, fmt: str, request: Request):
     result = get_case(cid, request)
+    mode = request.query_params.get('privacy', 'full')
+    if mode not in ('full', 'redacted'): raise HTTPException(400, 'Choose full or redacted privacy mode')
+    if mode == 'redacted':
+        from privacy import redact
+        result = redact(result)
     if fmt == 'json': body, mime = json.dumps(result, indent=2, ensure_ascii=True).encode(), 'application/json'
+    elif fmt == 'cef': body, mime = siem.cef(result).encode(), 'text/plain'
     elif fmt == 'csv':
         stream = io.StringIO(newline='')
         writer = csv.writer(stream)
@@ -204,7 +354,7 @@ def export(cid: str, fmt: str, request: Request):
             pdf.set_font('Helvetica', size=size)
             pdf.multi_cell(0, 6, str(text).encode('latin-1', 'replace').decode('latin-1'), new_x='LMARGIN', new_y='NEXT')
         line('AI-Powered Email Threat Detection', 18)
-        line('Email Forensic Report', 12)
+        line('Redacted Email Forensic Report' if mode == 'redacted' else 'Email Forensic Report', 12)
         line('Case: ' + cid)
         line('CONTROLLED DEMONSTRATION FIXTURE' if result.get('sample') else 'User-submitted email')
         line('Subject: ' + result['subject'])
@@ -219,6 +369,29 @@ def export(cid: str, fmt: str, request: Request):
         line('Origin: ' + result['origin'])
         line('NLP: ' + result['ml']['label'] + ' / ' + result['ml']['detail'])
         line('EVIDENCE', 13)
+        if result.get('assessment'):
+            line('Threat categories: ' + ', '.join(result['assessment']['categories']))
+            line(result['assessment']['method'])
+            for check in result['assessment']['checks']: line(check['title'] + ': ' + check['detail'])
+            origin = result['assessment'].get('origin_evidence', {})
+            line('Origin evidence confidence: ' + origin.get('confidence', 'undetermined'))
+            line(origin.get('basis', ''))
+            fingerprint = result['assessment'].get('hosting_fingerprint', {})
+            line('Infrastructure fingerprint: ' + str(fingerprint.get('sha256') or 'Unavailable'))
+            if origin.get('earliest_reliable_node'):
+                line('Receiver-attested ingress: ' + origin['earliest_reliable_node']['ip'])
+            attribution = result['assessment'].get('attribution', {})
+            if attribution:
+                line(f"Attribution confidence: {attribution['confidence_score']}/100 ({attribution['band']})")
+                for factor in attribution['factors']:
+                    if factor['applied']: line(f"  {factor['direction']} {factor['factor']} ({factor['weight']}): {factor['detail']}")
+                for caveat in attribution['caveats']: line('  Caveat: ' + caveat)
+            for entry in result['assessment'].get('ip_reputation', []):
+                if entry.get('status') == 'available':
+                    line(f"IP reputation {entry['ip']}: {entry['usage_type']} | abuse score {entry.get('abuse_confidence_score')} | Tor={entry.get('is_tor')}")
+            for entry in result['assessment'].get('attachment_reputation', []):
+                if entry.get('status') in ('available', 'no_prior_reports'):
+                    line(f"Attachment reputation {entry['sha256'][:16]}...: {entry['detail']}")
         for finding in result['findings']: line(f"{finding['title']}: {finding['detail']}")
         if result.get('conflicts'): line('EVIDENCE CONFLICTS', 13)
         for conflict in result.get('conflicts', []):
@@ -229,6 +402,14 @@ def export(cid: str, fmt: str, request: Request):
             line(conflict['assessment'])
         line('AUTHENTICATION RESULTS', 13)
         for key, value in result['authentication'].items(): line(f"{key.upper()}: {value['status']} - {value['detail']}")
+        if result.get('domain_intelligence'):
+            info = result['domain_intelligence']
+            line('DOMAIN INTELLIGENCE', 13)
+            line(str(info.get('domain', '')) + ': ' + info['status'])
+            for kind, record in info.get('dns', {}).items(): line(kind + ': ' + ', '.join(record['values']) + ' (' + record['status'] + ')')
+            registry = info.get('registration', {})
+            line('Registrar: ' + str(registry.get('registrar') or 'Unavailable'))
+            line('Registered: ' + str(registry.get('registered_at') or 'Unavailable'))
         line('RELAY OBSERVATIONS', 13)
         for hop in result['hops']: line(hop['raw'] + ' | ' + hop['trust'])
         line('INDICATORS', 13)
@@ -241,7 +422,7 @@ def export(cid: str, fmt: str, request: Request):
         for limitation in result['limitations']: line(limitation)
         line('Local hash verification is tamper-evident, not proof of legal admissibility or independent custody.')
         body, mime = bytes(pdf.output()), 'application/pdf'
-    else: raise HTTPException(400, 'Choose json, csv or pdf')
+    else: raise HTTPException(400, 'Choose json, csv, pdf or cef')
     return Response(body, media_type=mime, headers={'Content-Disposition': f'attachment; filename="case-{cid}.{fmt}"'})
 
 

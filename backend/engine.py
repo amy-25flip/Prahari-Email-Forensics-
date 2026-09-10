@@ -10,6 +10,9 @@ from urllib.parse import urlsplit, parse_qs
 from publicsuffixlist import PublicSuffixList
 import local_model as ml
 import reputation
+import domain_intelligence
+import general_detection
+import routing
 from authentication import authenticate
 from geolocation import enrich as enrich_locations
 from conflicts import detect as detect_conflicts
@@ -62,10 +65,10 @@ class HTMLText(HTMLParser):
 def scan_url(value, displayed=''):
     try:
         parts = urlsplit(value)
-        host = (parts.hostname or '').encode('idna').decode('ascii')
+        host = (parts.hostname or '').lower().encode('idna').decode('ascii')
         if parts.scheme.lower() not in ('http', 'https') or not host:
             return None
-        reasons = []
+        reasons = general_detection.url_signals(value)
         if parts.scheme.lower() == 'http': reasons.append('Unencrypted HTTP')
         try:
             ipaddress.ip_address(host)
@@ -114,7 +117,7 @@ def analyze(raw, source='upload', live=False, context=None):
                 html_links.extend(parser.links)
             else: texts.append(decoded)
     body = '\n'.join(texts)[:100000]
-    candidates = html_links + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body)]
+    candidates = html_links + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body, re.I)]
     urls = {}
     for candidate, shown in candidates:
         scanned = scan_url(candidate, shown)
@@ -163,7 +166,7 @@ def analyze(raw, source='upload', live=False, context=None):
                 ip = ipaddress.ip_address(token)
                 if str(ip) not in ips: ips.append(str(ip))
             except ValueError: pass
-        hops.append({'index': index + 1, 'raw': value[:2000], 'ips': ips,
+        hops.append({'index': index + 1, 'raw': value[:2000], 'ips': ips, **routing.parse(value),
                      'trust': 'Header-reported; receiver trust not established', 'location': None})
     indicators = []
     reply = parseaddr(str(msg.get('Reply-To', '')))[1].lower()
@@ -176,6 +179,7 @@ def analyze(raw, source='upload', live=False, context=None):
             'date': str(msg.get('Date', 'Unknown')), 'body': body, 'sha256': hashlib.sha256(raw).hexdigest(),
             'source': source, 'score': score, 'risk': 'High' if score >= 60 else 'Review' if score >= 25 else 'Low',
             'score_policy': 'evidence-v2; grouped heuristic, not fraud probability', 'groups': groups,
+            'domain_intelligence': domain_intelligence.lookup(sender, live),
             'reputation_feed': feed,
             'triage': assess(score, findings, prediction, list(urls.values())),
             'conflicts': detect_conflicts(findings, auth, prediction, list(urls.values())),

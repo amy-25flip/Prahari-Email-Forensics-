@@ -1,0 +1,34 @@
+# Original PS Acceptance Matrix
+
+Latest checkpoint: 2026-09-10. This supersedes earlier remaining-work lists for features covered below. The source is the complete user-provided PS, including all six Key Components. A staff directory, a particular vendor, bespoke BERT training, an email gateway and malware sandbox are not mandatory dependencies.
+
+| PS requirement | Current implementation | Acceptance boundary |
+| --- | --- | --- |
+| NLP and social-engineering detection | Local BERT, urgency/credential/payment/avoidance and general executive-payment cues | Independent accuracy and multilingual coverage not established |
+| Legitimate/suspicious/impersonated/phishing/fraud-related categories | Binary model plus explicit rule-derived categories | Not a trained or calibrated five-class model |
+| Spoofing, deceptive domains and links | Sender mismatches, within-email domain resemblance, displayed-link conflicts, encoded authorities, nested redirect targets, numeric hosts and internationalized-domain warnings | General checks need no staff directory. Comprehensive brand/Unicode similarity is not established; configured identities remain optional |
+| Suspicious attachments | Hashes, extensions, executable signatures, PDF action markers, Office macros and encryption markers | Static inspection only; maliciousness is not proven |
+| Header/protocol analysis | SPF/DKIM/DMARC, duplicate/malformed headers, Message-ID checks, timestamp reversals, repeated relay records, naming discontinuities and possible loops | Findings are qualified for forwarding, aliases and clock skew; original Google .eml investigation remains pending |
+| Transmission path and earliest reliable node | Sender-side IP parsing, reported relay chain, source confidence, original-byte-bound receiver HMAC attestation and ingress identification | Implemented and tested with controlled signed evidence. Actual institutional receiver configuration/validation remains pending; upstream headers and human identity remain unverified |
+| Geolocation and infrastructure indicators | Map, public-IP ISP/ASN/location, Tor exit snapshot matching, opt-in AbuseIPDB usage-type/abuse-score classification (hosting/proxy/VPN signal, requires `ABUSEIPDB_API_KEY`) | Open-relay/botnet-specific verdicts still unavailable; AbuseIPDB is community-reported classification, not a dedicated VPN/botnet detector |
+| Domain registration/DNS/hosting intelligence | Registry RDAP, DNS MX/NS/A/AAAA, relay ISP/ASN and reproducible fingerprint of observed infrastructure metadata | Shared hosting can produce identical fingerprints; does not prove common ownership |
+| Attachment threat reputation | Opt-in VirusTotal hash lookup (multi-engine verdict, requires `VIRUSTOTAL_API_KEY`, capped 4/analysis) alongside static signature/ZIP checks | Hash-only, no dynamic execution or sandboxing; unknown hash is not a clean verdict; uncapped attachments explicitly marked not-checked |
+| Graph relationships/campaigns | Reply/URL/hash/thread grouping and shared sender/domain/public-IP context | Candidate groups, not validated campaign attribution |
+| Confidence and probable environment | Evidence-derived spoofing/compromise hypotheses, qualitative source confidence, next verification steps, and a calibrated attribution-confidence engine (transparent 0-100 weighted score over 8 evidence factors, hard-capped at low confidence when origin is undetermined) | No guaranteed actor identity; the confidence score reflects trust in available evidence, not a statistical probability of guilt or independently validated attribution |
+| High-risk alerts before approval | Review priority shown before logged analyst approval, notes and acknowledgement gate | Local analyst workflow, not automatic mailbox interception |
+| Dashboard, case search and reports | Dashboard, maps, case/campaign search, PDF/JSON/CSV/CEF | Final report completeness and real-email acceptance still need review |
+| Privacy, retention and evidence custody | Sessions, configurable expiry, redacted exports, hash-chained events and saved checkpoints | No independent notary, authenticated reviewer identity or claim of legal admissibility |
+
+## Verification
+
+169 backend tests pass (148 plus 21 covering the new attribution/IP-reputation/attachment-reputation modules). Frontend build/lint and browser analysis, review, masking, checkpoint, campaign and receiver-receipt upload/rejection workflows pass. Controlled receiver tests reject changed bytes, context, signatures, unknown receivers and invalid timestamps. Detection time includes supplemental inspection and infrastructure checking. No new custom training or staff information is required to run general checks. Receiver trust configuration is documented in RECEIVER_EVIDENCE.md.
+
+## Submission Gates
+
+- Independently adjudicated real-email tests, including the original Google .eml, and measured error/latency results.
+- Activate and validate receiver attestation against actual trusted receiver logs before claiming institutional integration. Without a verified attestation, preserve unknown/conditional source results.
+- Review incomplete brand/hosting/attribution coverage against the submission claims; do not claim exhaustive detection.
+- Verify actual SIEM delivery if demonstrated; local/mock tests do not prove collector ingestion.
+- Hosting and container/deployment verification remain last by user instruction.
+
+This matrix records implemented behavior and limitations. It does not certify full PS completion or production readiness.

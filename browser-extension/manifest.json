@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Gmail Guard - Email Threat Detection",
+  "version": "0.1.0",
+  "description": "Automatically scans opened Gmail messages against the AI-Powered Email Threat Detection backend and shows a risk banner before you act on the email.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+    "https://*.onrender.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content.js"],
+      "css": ["banner.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Gmail Guard - Email Threat Detection" }
+}

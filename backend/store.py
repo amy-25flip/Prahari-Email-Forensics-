@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 DATA = Path(os.getenv('DATA_DIR', str(Path(__file__).parent / 'data')))
+RETENTION_SECONDS = max(1, min(168, int(os.getenv('RETENTION_HOURS', '24')))) * 3600
 MAX_SESSIONS = int(os.getenv('MAX_SESSIONS', '1000'))
 MAX_STORAGE = int(os.getenv('MAX_STORAGE_MB', '256')) * 1024 * 1024
 
@@ -46,7 +47,7 @@ def session(cookie):
             raise ValueError('Session capacity reached')
         cookie = secrets.token_urlsafe(32)
         hashed = hashlib.sha256(cookie.encode()).hexdigest()
-        db.execute('INSERT INTO sessions VALUES (?,?)', (hashed, time.time() + 86400))
+        db.execute('INSERT INTO sessions VALUES (?,?)', (hashed, time.time() + RETENTION_SECONDS))
     return hashed, cookie
 
 

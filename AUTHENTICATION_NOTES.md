@@ -1,5 +1,7 @@
 # Authentication and review checkpoint
 
+> For the latest September 10 implementation and test status, see CURRENT_STATUS.md and SECURITY_CHECKPOINT.md. Historical test totals and SIEM limitations below are superseded by those documents. Original Google .eml verification is still pending.
+
 SPF uses pyspf with explicit connecting IP, envelope MAIL FROM and HELO from receiver logs. These inputs remain analyst-supplied, not independently trusted. Arbitrary Authentication-Results headers cannot establish a pass.
 
 DKIM checks up to four signatures on submitted bytes. Pasted emails are also checked: valid signatures can pass, but unsuccessful pasted checks remain inconclusive because copying can change signed content. Original .eml upload remains preferable. Unknown alignment is shown as not established. DMARC assesses current DNS, not delivery-time DNS. DNS outages do not add failure penalties.
