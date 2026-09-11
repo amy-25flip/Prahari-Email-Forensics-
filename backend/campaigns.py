@@ -10,6 +10,11 @@ STRONG = {'reply_address', 'attachment_hash', 'url', 'thread_id'}
 SHINGLE_SIZE = 5
 SIMILARITY_TEXT_CHARS = 4000
 SIMILARITY_THRESHOLD = 0.75
+# Below this, a short-text Jaccard comparison is not a meaningful signal: e.g. two
+# unrelated one-word subjects with empty bodies both normalize to a single shingle
+# and trivially score 1.0 similarity. Require enough content for the comparison to
+# actually discriminate before treating it as strong evidence.
+MIN_SIMILARITY_TEXT_CHARS = 60
 
 
 def _normalize_for_similarity(report):
@@ -66,7 +71,8 @@ def build(reports):
                 continue
             shared = sorted(left_i & right_i)
             similarity = body_similarity(left_text, right_text)
-            fuzzy_match = similarity >= SIMILARITY_THRESHOLD
+            fuzzy_match = (similarity >= SIMILARITY_THRESHOLD
+                          and len(left_text) >= MIN_SIMILARITY_TEXT_CHARS and len(right_text) >= MIN_SIMILARITY_TEXT_CHARS)
             if not shared and not fuzzy_match: continue
             strong = fuzzy_match or any(kind in STRONG for kind, _ in shared)
             evidence = [{'type': k, 'value': v} for k, v in shared]

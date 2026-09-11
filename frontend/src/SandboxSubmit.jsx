@@ -16,7 +16,7 @@ export default function SandboxSubmit({ caseId, sha256 }) {
     if (!state?.analysis_id) return
     setBusy(true)
     try {
-      const response = await axios.get(`/api/attachments/sandbox/${state.analysis_id}`)
+      const response = await axios.post(`/api/attachments/sandbox/${state.analysis_id}`, {}, { headers: { 'X-Requested-With': 'Email-Threat-Detection' } })
       setState({ ...response.data, analysis_id: state.analysis_id })
     } catch { setState({ ...state, detail: 'Could not check status.' }) }
     finally { setBusy(false) }

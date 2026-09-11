@@ -163,6 +163,8 @@ def analysis_status(analysis_id):
         return {'status': 'disabled', 'detail': 'VIRUSTOTAL_API_KEY not configured.'}
     if not isinstance(analysis_id, str) or not re.fullmatch(r'[A-Za-z0-9+/_=-]{1,256}', analysis_id):
         return {'status': 'error', 'detail': 'Invalid analysis id.'}
+    limited = _reserve_request_slot()
+    if limited: return limited
     try:
         with requests.get(ANALYSIS_URL + analysis_id, headers={'x-apikey': token, 'Accept': 'application/json'},
                           timeout=(3, 10), stream=True, allow_redirects=False) as response:

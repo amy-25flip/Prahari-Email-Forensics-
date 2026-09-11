@@ -5,6 +5,14 @@ import attachment_reputation as ar
 import engine
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter(monkeypatch):
+    ar._cache.clear()
+    ar._requests.clear()
+    ar._inflight.clear()
+    monkeypatch.setattr(ar, '_blocked_until', 0.0)
+
+
 def upload_with_attachment():
     payload = b'MZ fake executable content'
     digest = hashlib.sha256(payload).hexdigest()
@@ -45,7 +53,7 @@ def test_sandbox_endpoint_rejects_unknown_hash(client):
 
 def test_sandbox_status_endpoint_validates_id(client, monkeypatch):
     monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'test-key')
-    response = client.get('/api/attachments/sandbox/not valid id!!', headers=HEADERS)
+    response = client.post('/api/attachments/sandbox/not valid id!!', headers=HEADERS)
     assert response.status_code == 200
     assert response.json()['status'] == 'error'
 
@@ -104,3 +112,27 @@ def test_analysis_status_reports_pending_then_completed(monkeypatch):
     result = ar.analysis_status('abc123==')
     assert result['status'] == 'completed'
     assert result['malicious_count'] == 2
+
+
+def test_analysis_status_shares_the_rate_limit_budget(monkeypatch):
+    # Regression: analysis_status() used to make unlimited provider calls without
+    # reserving a slot in the shared deque, letting repeated polling act as an
+    # unthrottled VirusTotal proxy using the server's own key.
+    monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'test-key')
+    monkeypatch.setenv('VIRUSTOTAL_REQUESTS_PER_MINUTE', '4')
+    calls = {'n': 0}
+    def fake_get(*a, **k):
+        calls['n'] += 1
+        return FakeResponse(200, {'data': {'attributes': {'status': 'queued'}}})
+    monkeypatch.setattr(ar.requests, 'get', fake_get)
+    results = [ar.analysis_status('abc123==') for _ in range(6)]
+    assert calls['n'] == 4
+    assert [r['status'] for r in results] == ['pending', 'pending', 'pending', 'pending', 'rate_limited', 'rate_limited']
+
+
+def test_sandbox_status_endpoint_requires_post_and_app_header(client):
+    # GET must no longer work (bypassed the peer-limiter/app-header middleware, which
+    # only guards POST/DELETE) -- this endpoint now goes through those checks too.
+    assert client.get('/api/attachments/sandbox/abc123').status_code in (404, 405)
+    response_no_header = client.post('/api/attachments/sandbox/abc123')
+    assert response_no_header.status_code == 403

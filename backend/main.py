@@ -270,7 +270,7 @@ def submit_attachment_sandbox(cid: str, sha256: str, request: Request):
     finally: slots.release()
 
 
-@app.get('/api/attachments/sandbox/{analysis_id}')
+@app.post('/api/attachments/sandbox/{analysis_id}')
 def get_attachment_sandbox_status(analysis_id: str):
     import attachment_reputation
     if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')

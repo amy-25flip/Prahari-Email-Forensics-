@@ -41,7 +41,15 @@ def verify(raw, live):
     if cv_result == dkim.CV_None and not chain:
         return {'status': 'not_present', 'chain_length': 0,
                 'detail': 'No ARC headers found; most email is never re-signed by an intermediate relay. This is normal, not a failure.'}
-    status = CV_LABELS.get(cv_result, 'unknown')
+    # dkimpy's ARC.verify() returns Python None (not CV_Fail) specifically when an
+    # intermediate hop's own ARC-Seal already reported cv=fail and the chain was
+    # terminated there -- a distinct failure path from "we detected a bad signature".
+    # Without this, it silently fell into CV_LABELS' 'unknown' fallback and the
+    # arc_chain_failed attribution penalty never fired for this case.
+    if cv_result is None:
+        status = 'fail'
+    else:
+        status = CV_LABELS.get(cv_result, 'unknown')
     return {'status': status, 'chain_length': len(chain), 'chain': chain, 'detail': _detail_for(status, reason)}
 
 
