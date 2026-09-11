@@ -56,9 +56,28 @@ def test_splunk_response(monkeypatch,report,http,body,expected):
         assert kwargs['allow_redirects'] is False
         assert kwargs['headers']['Authorization']=='Splunk example-token'
         assert 'body' not in kwargs['json']['event']
+        assert kwargs['verify'] is True
         return Response()
     monkeypatch.setattr(siem.requests,'post',post)
     assert siem.deliver(report)['status']==expected
+
+def test_splunk_tls_verify_skipped_only_when_explicitly_opted_in(monkeypatch,report):
+    # Regression: verify must default to True (secure) for any real collector, and only
+    # become False when an operator explicitly opts in for local self-signed-cert testing.
+    monkeypatch.setenv('SIEM_MODE','splunk')
+    monkeypatch.setenv('SPLUNK_HEC_URL','https://collector.example/services/collector/event')
+    monkeypatch.setenv('SPLUNK_HEC_TOKEN','example-token')
+    monkeypatch.setenv('SPLUNK_HEC_INSECURE_SKIP_VERIFY','1')
+    class Response:
+        status_code=200
+        def __enter__(self): return self
+        def __exit__(self,*a): pass
+        def iter_content(self,size): yield json.dumps({'code':0}).encode()
+    def post(url,**kwargs):
+        assert kwargs['verify'] is False
+        return Response()
+    monkeypatch.setattr(siem.requests,'post',post)
+    assert siem.deliver(report)['status']=='accepted'
 
 def test_timeout_unknown(monkeypatch,report):
     monkeypatch.setenv('SIEM_MODE','splunk')

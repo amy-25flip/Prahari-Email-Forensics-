@@ -75,12 +75,18 @@ def deliver(report):
             return {**receipt, 'status': 'written', 'detail': 'Written to the local Wazuh input log. Agent collection and server ingestion are not confirmed.'}
         except OSError:
             return {**receipt, 'status': 'failed', 'detail': 'Could not write the configured Wazuh input log.'}
+    # TLS verification is on by default (True) for any real deployment. The one opt-in
+    # escape hatch is SPLUNK_HEC_INSECURE_SKIP_VERIFY=1, meant only for local testing
+    # against a self-signed dev Splunk instance (e.g. the bundled default cert that
+    # ships with a fresh `splunk/splunk` install) -- never set this against a real
+    # collector, since it removes protection against a credential-stealing MITM.
+    verify = os.getenv('SPLUNK_HEC_INSECURE_SKIP_VERIFY') != '1'
     try:
         # Redirects must never forward the collector credential to another endpoint.
         with requests.post(target, headers={'Authorization': 'Splunk ' + token},
                            json={'time': payload['observed_at'], 'source': 'email-threat-detection',
                                  'sourcetype': '_json', 'event': payload}, timeout=(3, 7),
-                           allow_redirects=False, stream=True) as response:
+                           allow_redirects=False, stream=True, verify=verify) as response:
             if response.status_code != 200:
                 return {**receipt, 'status': 'failed', 'detail': f'Collector returned HTTP {response.status_code}; no success confirmed.'}
             chunks, size = [], 0
