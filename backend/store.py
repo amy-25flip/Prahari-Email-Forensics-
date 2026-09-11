@@ -88,6 +88,11 @@ def get(sid, cid):
     return json.loads(db_encryption.decrypt_text(row['report'])) if row else None
 
 
+def get_raw(sid, cid):
+    with connect() as db: row = db.execute('SELECT raw FROM cases WHERE session=? AND id=?', (sid, cid)).fetchone()
+    return db_encryption.decrypt_bytes(row['raw']) if row else None
+
+
 def all_cases(sid):
     with connect() as db: rows = db.execute('SELECT report FROM cases WHERE session=? ORDER BY created DESC', (sid,)).fetchall()
     return [json.loads(db_encryption.decrypt_text(row['report'])) for row in rows]

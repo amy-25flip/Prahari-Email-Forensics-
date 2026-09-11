@@ -13,6 +13,9 @@ from collections import deque
 from email.utils import parsedate_to_datetime
 
 SOURCE = 'https://www.virustotal.com/api/v3/files/'
+UPLOAD_URL = 'https://www.virustotal.com/api/v3/files'
+ANALYSIS_URL = 'https://www.virustotal.com/api/v3/analyses/'
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024  # VirusTotal's direct-upload limit (not needed above this app's own 1 MiB email cap)
 MAX_PER_ANALYSIS = 4  # Per-email work budget; the shared rolling-window limit is separate.
 _cache = {}
 _lock = threading.Lock()
@@ -103,6 +106,90 @@ def lookup_hash(sha256):
             _cache[sha256] = (now + (86400 if result['status'] in ('available', 'no_prior_reports') else 60), result)
             _inflight.discard(sha256)
     return result
+
+
+def _reserve_request_slot():
+    """Shared rolling-window budget with lookup_hash. Returns a rate-limited dict if the
+    caller should not proceed right now, or None if a slot was reserved."""
+    global _blocked_until
+    now = time.monotonic()
+    with _lock:
+        while _requests and now - _requests[0] >= 60: _requests.popleft()
+        delay = max(0, _blocked_until - now)
+        if len(_requests) >= request_limit(): delay = max(delay, 60 - (now - _requests[0]))
+        if delay > 0:
+            return {'status': 'rate_limited', 'retry_after_seconds': math.ceil(delay),
+                    'detail': 'Shared VirusTotal request budget or provider backoff active; not submitted.'}
+        _requests.append(now)
+    return None
+
+
+def submit_for_sandbox(file_bytes, filename='attachment'):
+    """Explicit, opt-in upload of actual file content for a fresh multi-engine dynamic
+    analysis -- distinct from lookup_hash, which only ever sends a hash. Only call this
+    for one specific attachment an analyst has chosen to submit, never automatically
+    during routine analysis."""
+    global _blocked_until
+    token = config()
+    if not token:
+        return {'status': 'disabled', 'detail': 'VIRUSTOTAL_API_KEY not configured.'}
+    if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
+        return {'status': 'error', 'detail': 'No file content to submit.'}
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        return {'status': 'error', 'detail': "File exceeds VirusTotal's 32 MiB direct-upload limit."}
+    limited = _reserve_request_slot()
+    if limited: return limited
+    try:
+        response = requests.post(UPLOAD_URL, headers={'x-apikey': token, 'Accept': 'application/json'},
+                                  files={'file': (str(filename)[:255], bytes(file_bytes))}, timeout=(5, 30))
+        if response.status_code == 429:
+            delay = retry_delay(response.headers.get('Retry-After'))
+            with _lock: _blocked_until = max(_blocked_until, time.monotonic() + delay)
+            return {'status': 'rate_limited', 'retry_after_seconds': math.ceil(delay), 'detail': 'VirusTotal quota exceeded; retry later.'}
+        if response.status_code == 401:
+            return {'status': 'unavailable', 'detail': 'VirusTotal rejected the configured API key.'}
+        response.raise_for_status()
+        analysis_id = (response.json().get('data') or {}).get('id')
+        if not analysis_id: raise ValueError('No analysis id returned')
+        return {'status': 'submitted', 'analysis_id': analysis_id,
+                'detail': 'File submitted for a fresh multi-engine sandbox analysis. This shares file content with VirusTotal, unlike hash-only lookups. Results typically take 1-3 minutes.'}
+    except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+        return {'status': 'error', 'detail': f'VirusTotal upload unavailable ({type(exc).__name__}).'}
+
+
+def analysis_status(analysis_id):
+    token = config()
+    if not token:
+        return {'status': 'disabled', 'detail': 'VIRUSTOTAL_API_KEY not configured.'}
+    if not isinstance(analysis_id, str) or not re.fullmatch(r'[A-Za-z0-9+/_=-]{1,256}', analysis_id):
+        return {'status': 'error', 'detail': 'Invalid analysis id.'}
+    try:
+        with requests.get(ANALYSIS_URL + analysis_id, headers={'x-apikey': token, 'Accept': 'application/json'},
+                          timeout=(3, 10), stream=True, allow_redirects=False) as response:
+            if response.status_code == 429:
+                return {'status': 'rate_limited', 'detail': 'VirusTotal quota exceeded; retry later.'}
+            if response.status_code == 401:
+                return {'status': 'unavailable', 'detail': 'VirusTotal rejected the configured API key.'}
+            response.raise_for_status()
+            chunks, total = [], 0
+            for chunk in response.iter_content(8192):
+                total += len(chunk)
+                if total > 262144: raise ValueError('Oversized response')
+                chunks.append(chunk)
+            data = json.loads(b''.join(chunks)).get('data') or {}
+            attributes = data.get('attributes') or {}
+            vt_status = attributes.get('status')
+            stats = attributes.get('stats') or {}
+            if vt_status != 'completed':
+                return {'status': 'pending', 'analysis_id': analysis_id,
+                        'detail': f'Sandbox analysis still {vt_status or "in progress"}; check back shortly.'}
+            malicious, suspicious = stats.get('malicious', 0) or 0, stats.get('suspicious', 0) or 0
+            total_engines = sum(v for v in stats.values() if isinstance(v, int))
+            return {'status': 'completed', 'analysis_id': analysis_id, 'malicious_count': malicious,
+                    'suspicious_count': suspicious, 'total_engines': total_engines,
+                    'detail': f'{malicious} of {total_engines} engines flagged this submission as malicious.'}
+    except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+        return {'status': 'error', 'detail': f'VirusTotal analysis check unavailable ({type(exc).__name__}).'}
 
 
 def enrich(attachments, enabled):

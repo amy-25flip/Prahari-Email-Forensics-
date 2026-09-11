@@ -16,6 +16,7 @@ FACTOR_WEIGHTS = {
     'no_header_conflicts': 10,
     'ip_reputation_available': 10,
     'geolocation_available': 5,
+    'arc_chain_valid': 10,
 }
 UNDETERMINED_CAP = 20
 
@@ -92,6 +93,12 @@ def assess(report):
     add('geolocation_available', geo_available,
         'Geolocation resolved for a reported node.' if geo_available else 'No geolocation data available for reported nodes.')
 
+    arc_status = (auth.get('arc') or {}).get('status')
+    arc_valid = arc_status == 'pass'
+    add('arc_chain_valid', arc_valid,
+        'ARC chain cryptographically validated on at least one forwarding hop.' if arc_valid
+        else 'No validated ARC chain (most email is never re-signed by an intermediate relay; this is normal).')
+
     tor_match = bool(infra.get('matches'))
     penalize('tor_exit_match', tor_match, 25,
               'Reported node matches a Tor exit snapshot.' if tor_match else 'No Tor exit-list match.')
@@ -108,6 +115,10 @@ def assess(report):
     conflict_penalty = min(30, len(conflicts) * 10)
     penalize('header_conflicts', conflict_penalty > 0, conflict_penalty,
               f'{len(conflicts)} conflict(s) reduce confidence in the reported chain.' if conflicts else 'No conflicts to penalize.')
+
+    arc_failed = arc_status == 'fail'
+    penalize('arc_chain_failed', arc_failed, 15,
+              'An ARC chain was present but failed cryptographic validation.' if arc_failed else 'No failed ARC chain.')
 
     undetermined = origin.get('confidence') in (None, 'undetermined')
     final = max(0.0, score)

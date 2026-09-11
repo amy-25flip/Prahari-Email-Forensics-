@@ -5,6 +5,7 @@ from email.utils import getaddresses
 import dkim
 import dns.resolver
 import spf
+import arc_verification
 
 
 def address_domain(value):
@@ -80,13 +81,14 @@ class PolicyLookup:
 
 def authenticate(msg, raw, live, source, context=None):
     observed = time.time()
-    result = {name: {'status': 'unknown', 'detail': 'External DNS verification disabled.', 'observed_at': observed} for name in ('spf', 'dkim', 'dmarc')}
+    result = {name: {'status': 'unknown', 'detail': 'External DNS verification disabled.', 'observed_at': observed} for name in ('spf', 'dkim', 'dmarc', 'arc')}
     signatures = msg.get_all('DKIM-Signature', [])
     if not signatures: result['dkim'].update(status='missing', detail='No DKIM signature present.')
     if not context: result['spf']['detail'] = 'SMTP client IP, MAIL FROM and HELO are not established. Supply receiver context to evaluate SPF.'
     result['spf']['context_source'] = 'analyst-supplied; not independently authenticated' if context else 'unavailable'
     if context: result['spf']['inputs'] = context
     if not live: return result
+    result['arc'] = {**arc_verification.verify(raw, live), 'observed_at': observed}
     deadline = time.monotonic() + 18
     def txt(name):
         remaining = deadline - time.monotonic()

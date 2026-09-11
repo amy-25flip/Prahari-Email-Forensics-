@@ -90,6 +90,26 @@ def scan_url(value, displayed=''):
         return None
 
 
+def extract_attachment(raw, sha256_hex):
+    """Re-locate one attachment's original bytes by hash, for an explicit, opt-in
+    follow-up action (e.g. sandbox submission) -- never retained across the main
+    analysis pass itself."""
+    if not raw or len(raw) > MAX_BYTES:
+        return None
+    try:
+        msg = BytesParser(policy=policy.default).parsebytes(raw)
+    except Exception:
+        return None
+    for i, part in enumerate(msg.walk()):
+        if i > 100: break
+        if part.is_multipart(): continue
+        if not (part.get_filename() or part.get_content_disposition() == 'attachment'): continue
+        payload = part.get_payload(decode=True) or b''
+        if payload and hashlib.sha256(payload).hexdigest() == sha256_hex:
+            return payload
+    return None
+
+
 def analyze(raw, source='upload', live=False, context=None):
     started = time.perf_counter()
     if not raw or len(raw) > MAX_BYTES:

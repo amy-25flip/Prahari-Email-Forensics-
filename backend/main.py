@@ -96,11 +96,12 @@ async def response_security(request: Request, call_next):
 
 @app.get('/api/health')
 def health():
-    import ip_reputation, attachment_reputation
+    import ip_reputation, attachment_reputation, db_encryption
     return {'status': 'ready', 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': store.RETENTION_SECONDS / 3600,
             'reputation': reputation.status(),
             'ip_reputation': {'configured': bool(ip_reputation.config())},
-            'attachment_reputation': {'configured': bool(attachment_reputation.config())}}
+            'attachment_reputation': {'configured': bool(attachment_reputation.config())},
+            'db_encryption': db_encryption.status()}
 
 
 @app.get('/api/ready')
@@ -249,6 +250,35 @@ def get_case(cid: str, request: Request):
     return result
 
 
+@app.post('/api/cases/{cid}/attachments/{sha256}/sandbox')
+def submit_attachment_sandbox(cid: str, sha256: str, request: Request):
+    import re, engine, attachment_reputation
+    if not re.fullmatch(r'[0-9a-fA-F]{64}', sha256): raise HTTPException(400, 'Invalid SHA-256 digest')
+    report = get_case(cid, request)
+    if not any(a['sha256'] == sha256.lower() for a in report.get('attachments', [])):
+        raise HTTPException(404, 'No attachment with this hash in this case')
+    raw = store.get_raw(request.state.sid, cid)
+    payload = engine.extract_attachment(raw, sha256.lower())
+    if payload is None: raise HTTPException(404, 'Attachment bytes are no longer available for this case')
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')
+    try:
+        result = attachment_reputation.submit_for_sandbox(payload, filename=sha256[:16])
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, request.state.sid, {'action': 'sandbox_submit', 'id': cid, 'sha256': sha256.lower(), 'status': result['status']})
+        return result
+    finally: slots.release()
+
+
+@app.get('/api/attachments/sandbox/{analysis_id}')
+def get_attachment_sandbox_status(analysis_id: str):
+    import attachment_reputation
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')
+    try:
+        return attachment_reputation.analysis_status(analysis_id)
+    finally: slots.release()
+
+
 @app.delete('/api/cases/{cid}')
 def delete_case(cid: str, request: Request):
     if not store.delete(request.state.sid, cid): raise HTTPException(404, 'Case not found')
@@ -280,6 +310,12 @@ class ReviewDecision(BaseModel):
     decision: str = Field(pattern=r'^(hold|approved)$')
     note: str = Field(min_length=20, max_length=1000)
     acknowledged: bool = Field(strict=True)
+
+
+class BlockchainProof(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    proof: str = Field(min_length=1, max_length=16384)
 
 
 @app.get('/api/cases/{cid}/review')
@@ -326,6 +362,32 @@ def verify_checkpoint(payload: Checkpoint, request: Request):
 
 @app.get('/api/verify')
 def verify(request: Request): return store.verify(request.state.sid)
+
+
+@app.post('/api/checkpoint/blockchain-stamp')
+def blockchain_stamp(request: Request):
+    import checkpoints, blockchain_timestamp
+    try:
+        head = checkpoints.snapshot(request.state.sid)['head']
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')
+    try:
+        result = blockchain_timestamp.stamp(head)
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, request.state.sid, {'action': 'blockchain_stamp', 'head': head, 'status': result['status']})
+        return result
+    finally: slots.release()
+
+
+@app.post('/api/checkpoint/blockchain-verify')
+def blockchain_verify(payload: BlockchainProof):
+    import blockchain_timestamp
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Workers busy. Please retry shortly.')
+    try:
+        return blockchain_timestamp.check(payload.sha256, payload.proof)
+    finally: slots.release()
 
 
 @app.get('/api/cases/{cid}/export/{fmt}')
