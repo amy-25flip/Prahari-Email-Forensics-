@@ -1,20 +1,40 @@
-"""Fine-tune bert-base-uncased from scratch on the team's own labeled phishing dataset.
+"""Fine-tune bert-base-uncased on the team's own labeled phishing dataset.
 
-Not a continuation of the current pretrained ealvaradob/bert-finetuned-phishing checkpoint —
-starts from a general base model so the result is genuinely "trained by us," matching the
-input format the app actually uses at inference time (subject + "\n" + body, see
-backend/local_model.py::classify).
+Fine-tuned from the public bert-base-uncased checkpoint (not a randomly-initialized
+"from scratch" pretraining run, and not a continuation of the current pretrained
+ealvaradob/bert-finetuned-phishing checkpoint) -- matching the input format the app
+actually uses at inference time (subject + "\n" + body, see backend/local_model.py::classify).
+
+Dedup note: the source dataset's own train/validation/test split assignment was found
+(via independent review) to leak near-duplicate content across splits -- several source
+CSVs came pre-split upstream (e.g. one corpus's own train/eval/test), and near-duplicates
+that existed across THAT boundary carried into the merged splits. bert-base-uncased's
+tokenizer lowercases and effectively collapses whitespace internally, so content that
+differs only by case/whitespace reaches the model as identical or near-identical token
+sequences -- a real leakage risk for the held-out test number, not just a cosmetic one.
+This script ignores the dataset's own split column, deduplicates on normalized
+(lowercased, whitespace-collapsed) subject+body across the *entire* pool, then performs
+a fresh stratified random split -- so no evaluation split can share content with train.
+
+Caveat (confirmed via independent review): this only removes *exact* normalized duplicates.
+It does not catch fuzzy/template-level near-duplicates -- the same phishing kit with one URL
+or recipient name changed, HTML/text extraction differences, or the same campaign repeated
+with minor variation. So the reported test accuracy should be read as "deduped random-split
+test accuracy," not as evidence of generalization to unseen campaigns/sources/domains.
 """
 import argparse
 import json
 import os
+import re
 import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
-from datasets import load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, confusion_matrix
+from sklearn.model_selection import train_test_split
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -28,6 +48,8 @@ BASE_MODEL = "bert-base-uncased"
 MAX_LENGTH = 256
 ID2LABEL = {0: "LEGITIMATE", 1: "PHISHING"}
 LABEL2ID = {v: k for k, v in ID2LABEL.items()}
+SPLIT_SEED = 42
+SPLIT_RATIOS = {"train": 0.8, "validation": 0.1, "test": 0.1}
 
 
 def build_text(example):
@@ -35,6 +57,66 @@ def build_text(example):
     body = (example.get("body") or "").strip()
     example["text_input"] = f"{subject}\n{body}"
     return example
+
+
+def _dedup_key(subject, body):
+    # NaN is truthy in Python (`bool(float('nan')) is True`), so `subject or ""` does NOT
+    # catch missing values -- it silently embeds the literal string "nan" instead, which
+    # breaks matching against the same row's content when it was NOT NaN in another split
+    # (e.g. loaded as Python None elsewhere). Must use pd.isna() to be correct here.
+    subject = "" if pd.isna(subject) else str(subject)
+    body = "" if pd.isna(body) else str(body)
+    text = (subject + "\n" + body).lower()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def load_deduplicated_and_resplit():
+    """Pool all three source files, drop cross-source near-duplicates (by normalized
+    subject+body, since that's what the uncased tokenizer effectively sees), then produce
+    a fresh stratified train/validation/test split so no eval row can leak into train."""
+    frames = []
+    for name in ("train", "validation", "test"):
+        df = pd.read_csv(DATA_DIR / f"{name}.csv", usecols=["subject", "body", "label"])
+        frames.append(df)
+    pool = pd.concat(frames, ignore_index=True)
+    pool = pool[pool["label"].isin([0, 1])].reset_index(drop=True)
+    before = len(pool)
+
+    pool["_dedup_key"] = [_dedup_key(s, b) for s, b in zip(pool["subject"], pool["body"])]
+    label_conflicts = pool.groupby("_dedup_key")["label"].nunique()
+    conflicting_keys = set(label_conflicts[label_conflicts > 1].index)
+    if conflicting_keys:
+        pool = pool[~pool["_dedup_key"].isin(conflicting_keys)]
+    pool = pool.drop_duplicates(subset="_dedup_key", keep="first").reset_index(drop=True)
+    removed = before - len(pool)
+
+    train_df, rest_df = train_test_split(
+        pool, test_size=(1 - SPLIT_RATIOS["train"]), stratify=pool["label"], random_state=SPLIT_SEED
+    )
+    val_fraction_of_rest = SPLIT_RATIOS["validation"] / (SPLIT_RATIOS["validation"] + SPLIT_RATIOS["test"])
+    val_df, test_df = train_test_split(
+        rest_df, test_size=(1 - val_fraction_of_rest), stratify=rest_df["label"], random_state=SPLIT_SEED
+    )
+
+    splits = {"train": train_df, "validation": val_df, "test": test_df}
+    keys_by_split = {name: set(df["_dedup_key"]) for name, df in splits.items()}
+    for a, b in (("train", "validation"), ("train", "test"), ("validation", "test")):
+        overlap = keys_by_split[a] & keys_by_split[b]
+        if overlap:
+            # Explicit exception, not assert: asserts are stripped under `python -O`, and a
+            # leakage check this load-bearing must not be silently skippable.
+            raise RuntimeError(f"Cross-split leakage between {a} and {b}: {len(overlap)} shared normalized rows")
+
+    dedup_stats = {
+        "rows_before_dedup": before,
+        "rows_removed_as_near_duplicate_or_label_conflict": removed,
+        "label_conflicting_groups_removed": len(conflicting_keys),
+    }
+    dataset = DatasetDict({
+        name: Dataset.from_pandas(df.drop(columns="_dedup_key").reset_index(drop=True))
+        for name, df in splits.items()
+    })
+    return dataset, dedup_stats
 
 
 def tokenize_factory(tokenizer):
@@ -80,20 +162,9 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    print("Loading dataset...")
-    data_files = {
-        "train": str(DATA_DIR / "train.csv"),
-        "validation": str(DATA_DIR / "validation.csv"),
-        "test": str(DATA_DIR / "test.csv"),
-    }
-    dataset = load_dataset("csv", data_files=data_files)
-
-    keep_cols = ["subject", "body", "label"]
-    for split in dataset:
-        drop_cols = [c for c in dataset[split].column_names if c not in keep_cols]
-        dataset[split] = dataset[split].remove_columns(drop_cols)
-
-    dataset = dataset.filter(lambda ex: ex["label"] in (0, 1))
+    print("Loading dataset (deduplicating cross-split near-duplicates, fresh stratified split)...")
+    dataset, dedup_stats = load_deduplicated_and_resplit()
+    print(f"Dedup: {dedup_stats}")
 
     if args.max_train_samples:
         dataset["train"] = dataset["train"].shuffle(seed=42).select(range(min(args.max_train_samples, len(dataset["train"]))))
@@ -171,7 +242,10 @@ def main():
 
     report = {
         "base_model": BASE_MODEL,
+        "fine_tuned_from": "public bert-base-uncased checkpoint, not a from-scratch/randomly-initialized run and not a continuation of ealvaradob/bert-finetuned-phishing",
+        "test_metric_caveat": "Deduped random-split test accuracy: exact normalized duplicates were removed across a fresh stratified split, but fuzzy/template-level near-duplicates (same kit/campaign with minor edits) were not detected or excluded. Not evidence of generalization to unseen campaigns, sources, or domains.",
         "max_length": MAX_LENGTH,
+        "dedup_stats": dedup_stats,
         "train_rows": len(dataset["train"]),
         "validation_rows": len(dataset["validation"]),
         "test_rows": len(dataset["test"]),
