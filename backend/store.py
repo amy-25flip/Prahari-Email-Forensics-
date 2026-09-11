@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
+import db_encryption
 
 DATA = Path(os.getenv('DATA_DIR', str(Path(__file__).parent / 'data')))
 RETENTION_SECONDS = max(1, min(168, int(os.getenv('RETENTION_HOURS', '24')))) * 3600
@@ -76,19 +77,20 @@ def save(sid, report, raw):
         if used + len(raw) + len(encoded.encode()) > MAX_STORAGE:
             raise ValueError('Evidence storage capacity reached. Retry after case expiration or deletion.')
         rh = hashlib.sha256(encoded.encode()).hexdigest()
-        db.execute('INSERT INTO cases VALUES (?,?,?,?,?,?)', (cid, sid, time.time(), encoded, raw, rh))
+        stored_report, stored_raw = db_encryption.encrypt_text(encoded), db_encryption.encrypt_bytes(raw)
+        db.execute('INSERT INTO cases VALUES (?,?,?,?,?,?)', (cid, sid, time.time(), stored_report, stored_raw, rh))
         append(db, sid, {'action': 'analyze', 'id': cid, 'raw_hash': report['sha256'], 'report_hash': rh, 'at': time.time()})
     return report
 
 
 def get(sid, cid):
     with connect() as db: row = db.execute('SELECT report FROM cases WHERE session=? AND id=?', (sid, cid)).fetchone()
-    return json.loads(row['report']) if row else None
+    return json.loads(db_encryption.decrypt_text(row['report'])) if row else None
 
 
 def all_cases(sid):
     with connect() as db: rows = db.execute('SELECT report FROM cases WHERE session=? ORDER BY created DESC', (sid,)).fetchall()
-    return [json.loads(row['report']) for row in rows]
+    return [json.loads(db_encryption.decrypt_text(row['report'])) for row in rows]
 
 
 def delete(sid, cid):
@@ -113,7 +115,9 @@ def verify(sid):
         for row in db.execute('SELECT * FROM cases WHERE session=?', (sid,)):
             found.add(row['id'])
             event = created.get(row['id'], {})
-            if hashlib.sha256(row['report'].encode()).hexdigest() != event.get('report_hash') or hashlib.sha256(row['raw']).hexdigest() != event.get('raw_hash'):
+            report_plain = db_encryption.decrypt_text(row['report'])
+            raw_plain = db_encryption.decrypt_bytes(row['raw'])
+            if hashlib.sha256(report_plain.encode()).hexdigest() != event.get('report_hash') or hashlib.sha256(raw_plain).hexdigest() != event.get('raw_hash'):
                 return {'valid': False, 'detail': 'Stored evidence differs from audit event', 'checked': count}
         if found != set(created) - deleted: return {'valid': False, 'detail': 'Case inventory differs from audit events', 'checked': count}
     return {'valid': True, 'checked': count, 'head': previous,

@@ -14,3 +14,4 @@ backend/.pytest_tmp/
 *.eml
 backend/serve_local.py
 .claude/
+training/output/
