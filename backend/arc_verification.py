@@ -21,15 +21,33 @@ def verify(raw, live):
     if not live:
         return {'status': 'unknown', 'detail': 'External DNS verification disabled.'}
     deadline = time.monotonic() + 10
+    lookup_failed = False
 
     def key_lookup(name, timeout=2):
+        nonlocal lookup_failed
         remaining = deadline - time.monotonic()
-        if remaining <= 0: return b''
+        if remaining <= 0:
+            lookup_failed = True
+            return b''
         try:
             answer = dns.resolver.resolve(name.decode().rstrip('.'), 'TXT', lifetime=min(2, remaining))
             records = [b''.join(r.strings).decode('ascii') for r in answer]
             return records[0].encode('ascii') if len(records) == 1 else b''
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            # A definitive negative answer: the selector genuinely has no published key.
+            # This is real evidence of an absent/forged seal, not environmental flakiness
+            # -- must not be downgraded below, or a genuinely broken ARC chain could hide
+            # behind the same 'unknown' treatment meant for DNS trouble.
+            return b''
         except Exception:
+            # Transient/environmental failures (timeout, no reachable nameserver, etc.)
+            # -- dkimpy can't distinguish these from "no key published" (both collapse to
+            # the same b'' return and downstream CV_Fail), so track them separately here
+            # to downgrade a 'fail' verdict below instead of confidently penalizing a
+            # legitimate sender for a DNS hiccup -- confirmed live against a real Google
+            # email where a transient DNS timeout flipped the verdict between pass/fail
+            # across identical retries of the same message.
+            lookup_failed = True
             return b''
 
     try:
@@ -37,7 +55,20 @@ def verify(raw, live):
     except Exception as exc:
         return {'status': 'unknown', 'detail': f'ARC chain verification unavailable ({type(exc).__name__}).'}
 
-    chain = [{k: r.get(k) for k in ('d', 'i', 'cv') if k in r} for r in (chain_results or [])]
+    def _jsonable(value):
+        # dkimpy returns raw header values (d=/cv= etc.) as bytes, which json.dumps
+        # can't serialize -- this crashed on the first real email with an actual
+        # ARC-Seal chain (test fixtures never exercised this path with real bytes).
+        return value.decode('ascii', 'replace') if isinstance(value, bytes) else value
+
+    # dkimpy's ARC.verify_instance() keys these 'instance'/'as-domain'/'cv' (confirmed via
+    # inspect.getsource, not assumed) -- there is no 'd' or 'i' key, so the previous
+    # ('d', 'i', 'cv') lookup silently matched only 'cv' and dropped which domain sealed
+    # each hop from every report. 'as-domain' (the ARC-Seal signer) is used over
+    # 'ams-domain' (the ARC-Message-Signature signer) since the seal is what this
+    # verification actually authenticates.
+    chain = [{'instance': r.get('instance'), 'domain': _jsonable(r.get('as-domain')), 'cv': _jsonable(r.get('cv'))}
+             for r in (chain_results or [])]
     if cv_result == dkim.CV_None and not chain:
         return {'status': 'not_present', 'chain_length': 0,
                 'detail': 'No ARC headers found; most email is never re-signed by an intermediate relay. This is normal, not a failure.'}
@@ -50,6 +81,9 @@ def verify(raw, live):
         status = 'fail'
     else:
         status = CV_LABELS.get(cv_result, 'unknown')
+    if status == 'fail' and lookup_failed:
+        status = 'unknown'
+        reason = f'{reason or "validation did not complete"}; at least one DNS key lookup during verification failed or timed out'
     return {'status': status, 'chain_length': len(chain), 'chain': chain, 'detail': _detail_for(status, reason)}
 
 
