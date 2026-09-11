@@ -85,7 +85,7 @@ def scan_url(value, displayed=''):
         if shown and urlsplit(shown[0]).hostname != parts.hostname: reasons.append('Displayed URL differs from destination')
         if re.search(r'(verify|login|password|secure|account)', host + parts.path, re.I): reasons.append('Account-action wording')
         return {'url': value[:4096], 'domain': host, 'protocol': parts.scheme.upper(), 'displayed': displayed[:200],
-                'reasons': reasons, 'score': min(100, len(reasons) * 20), 'reputation': 'Not checked', 'length': len(value)}
+                'reasons': reasons, 'score': min(100, sum(r not in general_detection.URL_CONTEXT_ONLY for r in reasons) * 20), 'reputation': 'Not checked', 'length': len(value)}
     except (ValueError, UnicodeError):
         return None
 

@@ -48,9 +48,8 @@ def test_tor_match_applies_penalty_and_is_visible_in_factors():
 
 def test_all_unevaluated_inputs_do_not_crash():
     result = attribution.assess({})
-    # An empty report has no conflicts to report (vacuously true), earning that one factor;
-    # everything else that requires actual evidence stays unapplied.
-    assert result['confidence_score'] == attribution.FACTOR_WEIGHTS['no_header_conflicts']
+    # Missing evidence is not a successful header inspection.
+    assert result['confidence_score'] == 0
     assert result['band'] == 'low'
     assert isinstance(result['factors'], list) and len(result['factors']) > 0
 

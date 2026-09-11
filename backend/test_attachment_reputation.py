@@ -11,6 +11,10 @@ HASH_E = 'e' * 64
 @pytest.fixture(autouse=True)
 def reset(monkeypatch):
     ar._cache.clear()
+    ar._requests.clear()
+    ar._inflight.clear()
+    monkeypatch.setattr(ar, '_blocked_until', 0.0)
+    monkeypatch.setenv('VIRUSTOTAL_REQUESTS_PER_MINUTE', '4')
     monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'test-key')
 
 

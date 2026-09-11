@@ -10,8 +10,16 @@ async function getBackendUrl() {
   return (backendUrl || DEFAULT_BACKEND).replace(/\/$/, '')
 }
 
-async function analyze(raw) {
+async function analyze(rawBase64, expectedBackend) {
   const backend = await getBackendUrl()
+  if (expectedBackend && backend !== expectedBackend) throw new Error('Backend changed; retry the scan.')
+  const target = new URL(backend)
+  const local = ['localhost', '127.0.0.1'].includes(target.hostname) && target.protocol === 'http:'
+  const hosted = target.hostname.endsWith('.onrender.com') && target.protocol === 'https:'
+  if ((!local && !hosted) || target.username || target.password || target.search || target.hash) throw new Error('Unsupported backend URL.')
+  if (typeof rawBase64 !== 'string' || rawBase64.length > 1398104) throw new Error('Invalid or oversized email.')
+  const raw = Uint8Array.from(atob(rawBase64), c => c.charCodeAt(0))
+  if (!raw.length || raw.length > 1048576) throw new Error('Email must be between 1 byte and 1 MiB.')
   let response
   try {
     response = await fetch(backend + '/api/analyze?enrich=true', {
@@ -44,7 +52,7 @@ async function recordHistory(result) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'scan-email') {
-    analyze(message.raw)
+    analyze(message.rawBase64, message.expectedBackend)
       .then(async result => { await recordHistory(result); sendResponse({ ok: true, result }) })
       .catch(error => sendResponse({ ok: false, error: String(error && error.message || error) }))
     return true // keep the message channel open for the async sendResponse above

@@ -69,7 +69,7 @@ def inspect(raw, report):
     if phishing or any('PhishTank' in title for title in titles): labels.append('phishing')
     if (checks or report['findings'] or report['score']>=25) and not labels: labels.append('suspicious')
     if not labels:
-        labels=['legitimate'] if report['ml'].get('label','').lower()=='legitimate' else ['undetermined']
+        labels=['legitimate'] if report['ml'].get('status')=='ready' and report['ml'].get('label','').strip().lower() in ('benign','legitimate') else ['undetermined']
     dmarc=report['authentication']['dmarc']['status']
     origin_flags=[]
     if dmarc=='fail': origin_flags.append('Possible spoofed domain: current authentication alignment failed; forwarding or configuration can also cause failures.')

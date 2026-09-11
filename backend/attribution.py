@@ -1,4 +1,4 @@
-"""Calibrated attribution-confidence scoring.
+"""Heuristic attribution-confidence scoring, not statistical calibration.
 
 Answers "how much should an investigator trust this email's origin evidence", not
 a fraud-probability score (engine.py's evidence score already covers that) and not
@@ -40,7 +40,10 @@ def assess(report):
     ip_rep = assessment.get('ip_reputation') or []
     if not isinstance(ip_rep, list): ip_rep = []
     domain_reg = (report.get('domain_intelligence') or {}).get('registration') or {}
-    conflicts = report.get('conflicts') or []
+    # Language/link contradictions are not evidence of relay manipulation.
+    checks = assessment.get('checks')
+    conflicts = {(c.get('kind'), c.get('title')) for c in (checks or [])
+                 if c.get('kind') in ('header', 'routing')}
     dmarc = auth.get('dmarc') or {}
 
     factors, score = [], 0.0
@@ -72,14 +75,14 @@ def assess(report):
 
     reg_available = domain_reg.get('status') == 'available'
     age_days = _domain_age_days(domain_reg.get('registered_at'))
-    reg_trustworthy = reg_available and (age_days is None or age_days > 30)
+    reg_trustworthy = reg_available and age_days is not None and age_days >= 30
     add('domain_registration', reg_trustworthy,
         'Sender domain registration data available and not newly registered.' if reg_trustworthy
         else 'Domain registration data unavailable, or the domain is very recently registered.')
 
-    no_conflicts = len(conflicts) == 0
+    no_conflicts = isinstance(checks, list) and bool(report.get('hops')) and not conflicts
     add('no_header_conflicts', no_conflicts,
-        'No header/relay conflicts detected.' if no_conflicts else f'{len(conflicts)} header/relay conflict(s) detected.')
+        'Completed header/relay checks found no conflicts.' if no_conflicts else f'{len(conflicts)} header/relay conflict(s) detected.' if conflicts else 'Header/relay evidence is insufficient for a no-conflict bonus.')
 
     ip_available = any(r.get('status') == 'available' for r in ip_rep)
     add('ip_reputation_available', ip_available,
@@ -106,7 +109,7 @@ def assess(report):
     penalize('header_conflicts', conflict_penalty > 0, conflict_penalty,
               f'{len(conflicts)} conflict(s) reduce confidence in the reported chain.' if conflicts else 'No conflicts to penalize.')
 
-    undetermined = origin.get('confidence') == 'undetermined'
+    undetermined = origin.get('confidence') in (None, 'undetermined')
     final = max(0.0, score)
     if undetermined: final = min(final, UNDETERMINED_CAP)
     final = int(round(max(0, min(100, final))))

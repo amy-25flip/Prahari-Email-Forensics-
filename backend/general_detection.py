@@ -1,6 +1,21 @@
 """General BEC cues and bounded URL interpretation, without visiting links."""
 import re
+import ipaddress
+from publicsuffixlist import PublicSuffixList
 from urllib.parse import urlsplit, unquote, parse_qs
+
+PSL = PublicSuffixList()
+URL_CONTEXT_ONLY = {'Redirect parameter', 'Account-action wording', 'Redirect remains within registrable domain'}
+
+
+def domain_boundary(host):
+    try:
+        host = (host or '').lower().rstrip('.').encode('idna').decode('ascii')
+        try: return str(ipaddress.ip_address(host))
+        except ValueError: pass
+        if not host or any(not re.fullmatch(r'[a-z0-9-]+', label) for label in host.split('.')): return None
+        return PSL.privatesuffix(host) or host
+    except UnicodeError: return None
 
 
 def url_signals(value):
@@ -19,9 +34,12 @@ def url_signals(value):
         for target in values[:2]:
             for _ in range(2): target=unquote(target)
             destination=urlsplit(target)
-            if destination.scheme.lower() in ('http','https') and destination.hostname and destination.hostname.lower()!=host.lower():
-                reasons.append('Redirect parameter points to another host')
-                return reasons
+            if destination.scheme.lower() in ('http','https','') and destination.hostname:
+                same = domain_boundary(host) is not None and domain_boundary(host) == domain_boundary(destination.hostname)
+                reason = 'Redirect remains within registrable domain' if same else 'Redirect parameter points to another host'
+                if destination.hostname.lower().rstrip('.') != host.lower().rstrip('.') and reason not in reasons: reasons.append(reason)
+                if destination.username and 'Redirect target contains user information' not in reasons:
+                    reasons.append('Redirect target contains user information')
     return reasons
 
 

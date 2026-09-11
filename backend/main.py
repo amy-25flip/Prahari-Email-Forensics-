@@ -182,6 +182,8 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
         result['assessment']['ip_reputation'] = ip_reputation.enrich(result['hops'], live)
         import attachment_reputation
         result['assessment']['attachment_reputation'] = attachment_reputation.enrich(result['attachments'], live)
+        import reputation_triage
+        reputation_triage.apply(result)
         import attribution
         result['assessment']['attribution'] = attribution.assess(result)
         if result['assessment']['checks'] and result['triage']['priority'] in ('routine', 'incomplete'):

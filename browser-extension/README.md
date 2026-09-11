@@ -17,8 +17,16 @@ into your Gmail, which it will not do; you need to load and test this yourself).
    endpoint the web app uses) via the extension's background service worker.
 4. It injects a risk banner directly into the Gmail message view: evidence score, risk band, attribution
    confidence, and top findings — before you click any links or reply.
-5. Each message is scanned once per hour (deduplicated locally) so re-opening the same thread doesn't
-   burn through external API quota (AbuseIPDB / VirusTotal free tiers) needlessly.
+5. Successful results are cached for one hour in the current Gmail page, keyed by account, backend and
+   message. Recreated message views restore the banner. Reloading the page clears this cache.
+   Failed scans retry with bounded backoff rather than being recorded as successful scans.
+6. Original message bytes are preserved during transfer; messages over 1 MiB are rejected.
+
+## Regression checks
+
+Run `node --test browser-extension/test-extension.cjs` from the repository root. These tests cover
+retry/cache state and original-byte transfer. Synthetic browser checks also cover banner restoration,
+urgent triage, account paths and safe text rendering. These do not replace testing live Gmail markup.
 
 ## Install (unpacked, for testing)
 
