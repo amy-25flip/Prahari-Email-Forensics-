@@ -26,7 +26,7 @@ Verification: 110 backend tests passed using the project runtime. Frontend produ
 
 ## Not Yet Complete
 
-1. Original Google .eml investigation and independently adjudicated real-email testing. Raw Google email has not been provided.
+1. Original Google .eml investigation and independently adjudicated real-email testing. The raw Google email has since been provided and tested (see PS_PROGRESS.md's 2026-09-11 third-pass entry) -- this line is now stale; broader real-email testing beyond that one message is still pending.
 2. Trusted receiver ingestion for establishing a reliable relay boundary. Current path observations are explicitly unverified; the system cannot reliably identify a human actor from raw headers alone.
 3. Dedicated VPN/Tor/open-relay/botnet intelligence. Tor exit-list matching plus opt-in AbuseIPDB usage-type/abuse-score classification (`ABUSEIPDB_API_KEY`) now cover hosting/proxy/VPN signal as community-reported classification; open-relay and botnet-specific coverage remains unavailable.
 4. Broader sender/domain/IP campaign correlation and calibrated attribution assessment. Campaign correlation is still exact-match only (shared reply addresses, exact URLs and attachment hashes). A calibrated attribution-confidence engine now exists (`backend/attribution.py`): a transparent, weighted 0-100 score over eight evidence factors, hard-capped at low confidence whenever origin evidence is undetermined — it scores trust in available evidence, not actor identity.

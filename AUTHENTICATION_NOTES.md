@@ -1,6 +1,6 @@
 # Authentication and review checkpoint
 
-> For the latest September 10 implementation and test status, see CURRENT_STATUS.md and SECURITY_CHECKPOINT.md. Historical test totals and SIEM limitations below are superseded by those documents. Original Google .eml verification is still pending.
+> For the latest implementation and test status, see PS_PROGRESS.md and PS_ACCEPTANCE.md (which supersede CURRENT_STATUS.md and SECURITY_CHECKPOINT.md in turn). Historical test totals and SIEM limitations below are long superseded. The "Original Google .eml verification is still pending" line below and at the bottom of this file is stale -- that email has since been tested; see PS_PROGRESS.md's 2026-09-11 third-pass entry.
 
 SPF uses pyspf with explicit connecting IP, envelope MAIL FROM and HELO from receiver logs. These inputs remain analyst-supplied, not independently trusted. Arbitrary Authentication-Results headers cannot establish a pass.
 
