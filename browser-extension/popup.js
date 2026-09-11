@@ -5,7 +5,7 @@ const tone = score => score >= 60 ? 'danger' : score >= 25 ? 'warn' : 'good'
 
 async function load() {
   const { backendUrl, history = [] } = await chrome.storage.local.get(['backendUrl', 'history'])
-  backendInput.value = backendUrl || 'http://localhost:8000'
+  backendInput.value = backendUrl || 'http://localhost:8010'
   historyEl.innerHTML = history.length ? history.map(h => `
     <div class="row">
       <div><strong>${escapeHtml(h.subject || '(no subject)')}</strong><br><small>${escapeHtml(h.sender || '')}</small></div>

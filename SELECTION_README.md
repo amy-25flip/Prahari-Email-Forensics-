@@ -1,6 +1,6 @@
 # AI-Powered Email Threat Detection
 
-> Historical setup notes. For the September 10 verified feature list and outstanding work, use CURRENT_STATUS.md, SECURITY_CHECKPOINT.md and SIEM_CONFIGURATION.md. SIEM connectors, configurable retention, request limits, domain intelligence and saved evidence checkpoints now exist. Use the project .venv rather than global Python. The older limitations below describe the earlier checkpoint, not the current acceptance status.
+> Historical setup notes. For current status, use PS_PROGRESS.md and PS_ACCEPTANCE.md. Use the project .venv rather than global Python. The "Honest Limitations" section below is stale on two specific points: the model is no longer only pretrained (a team-trained checkpoint now exists, see PS_PROGRESS.md's 2026-09-11 entries) and SIEM delivery is implemented and, for Splunk, verified against a real live collector (same entries). The older limitations below otherwise describe the earlier checkpoint, not the current acceptance status.
 
 This update extends the existing FastAPI/React project. The entry point is `backend/main.py`. The older Flask experiment (`backend/app.py` and its `analyzer.py`/`dkim_checker.py`/`url_scanner.py`/`ml_classifier.py` dependencies) was never used by this release and has been deleted (2026-09-11) after confirming nothing referenced it; the selection API uses `engine.py`.
 
@@ -8,9 +8,9 @@ This update extends the existing FastAPI/React project. The entry point is `back
 
 Install `backend/requirements.txt` in a Python environment. CPU PyTorch is sufficient for inference. Download the model once with Hugging Face `snapshot_download('ealvaradob/bert-finetuned-phishing')`; runtime uses local files only. No model training or corpus modification is part of this update.
 
-Backend: from `backend`, run `python -m uvicorn main:app --host 127.0.0.1 --port 8000`.
+Backend: from `backend`, run `python -m uvicorn main:app --host 127.0.0.1 --port 8010` (or `python serve_local.py`, which also sets local API keys/model path). Port 8010, not 8000 -- 8000 is reserved for Splunk's own web UI when running the local live-SIEM-demo setup.
 
-Frontend: from `frontend`, run `npm ci`, then `npm run dev -- --host 127.0.0.1`. Vite proxies `/api` to port 8000. Open the URL printed by Vite. Start backend before opening the frontend.
+Frontend: from `frontend`, run `npm ci`, then `npm run dev -- --host 127.0.0.1`. Vite proxies `/api` to port 8010. Open the URL printed by Vite. Start backend before opening the frontend.
 
 Build the frontend with `npm run build`, then restart the backend. FastAPI serves the built frontend on the same origin, so no localhost URL is embedded in the deployed application. Auto-docs are at `/docs`.
 

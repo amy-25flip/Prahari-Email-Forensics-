@@ -30,8 +30,9 @@ urgent triage, account paths and safe text rendering. These do not replace testi
 
 ## Install (unpacked, for testing)
 
-1. Make sure the backend is running and reachable (defaults to `http://localhost:8000`; open the extension
-   popup to change it — e.g. once deployed to Render).
+1. Make sure the backend is running and reachable (defaults to `http://localhost:8010`; open the extension
+   popup to change it — e.g. once deployed to Render). Port 8010, not 8000: 8000 is reserved for Splunk's
+   own web UI when running the local live-SIEM-demo setup.
 2. In Chrome, go to `chrome://extensions`, enable **Developer mode** (top right).
 3. Click **Load unpacked** and select this `browser-extension/` folder.
 4. Open Gmail (`mail.google.com`) in a tab and open any email. Watch the bottom-right status badge and

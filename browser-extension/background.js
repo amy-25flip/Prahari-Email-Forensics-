@@ -3,7 +3,7 @@
 // target URL is covered by a declared host_permissions entry (see manifest.json),
 // so the backend needs no CORS changes for this to work.
 
-const DEFAULT_BACKEND = 'http://localhost:8000'
+const DEFAULT_BACKEND = 'http://localhost:8010'
 
 async function getBackendUrl() {
   const { backendUrl } = await chrome.storage.local.get('backendUrl')
