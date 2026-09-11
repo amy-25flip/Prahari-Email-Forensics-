@@ -28,7 +28,7 @@ Latest checkpoint: 2026-09-10. This supersedes earlier remaining-work lists for 
 - Independently adjudicated real-email tests across a representative set, and measured error/latency results. (The original Google .eml specifically has now been tested — see PS_PROGRESS.md's 2026-09-11 third-pass entry — but this was one email, not a representative set.)
 - Activate and validate receiver attestation against actual trusted receiver logs before claiming institutional integration. Without a verified attestation, preserve unknown/conditional source results.
 - Review incomplete brand/hosting/attribution coverage against the submission claims; do not claim exhaustive detection.
-- Verify actual SIEM delivery if demonstrated; local/mock tests do not prove collector ingestion.
+- Verify actual SIEM delivery if demonstrated; local/mock tests do not prove collector ingestion. (Splunk HEC delivery is now verified against a real local Splunk instance — see PS_PROGRESS.md's 2026-09-11 fourth-pass entry. Wazuh remains mock/file-only, unverified against a live server.)
 - Hosting and container/deployment verification remain last by user instruction.
 
 This matrix records implemented behavior and limitations. It does not certify full PS completion or production readiness.

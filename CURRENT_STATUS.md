@@ -19,7 +19,7 @@ checkpoint anchoring, and at-rest field encryption, all added after this file wa
 - Public-IP geolocation, ISP/ASN metadata, relay map and offline fallback. OpenStreetMap tiles visually verified in the browser.
 - Sender-domain MX, NS, A and AAAA records; IANA-bootstrapped registry RDAP metadata, including registration date and registrar when available. Live google.com lookup verified.
 - Evidence Conflict Detector, case search/history, shared-indicator connections, PDF/JSON/CSV and CEF exports, hash-chain verification.
-- Splunk HTTPS HEC and Wazuh JSON-log connectors with explicit send controls and minimal payloads. Local file and real mock-HTTPS tests passed; no live collector is configured.
+- Splunk HTTPS HEC and Wazuh JSON-log connectors with explicit send controls and minimal payloads. Local file and real mock-HTTPS tests passed. (Stale: Splunk HEC has since been verified against a real live collector, not just mocks — see PS_PROGRESS.md's 2026-09-11 fourth-pass entry. Wazuh remains unverified against a live server.)
 - Configurable retention, peer rate limits, upload time/size limits, security headers, dependency inventories and CycloneDX SBOMs.
 
 Verification: 110 backend tests passed using the project runtime. Frontend production build and lint passed. Browser checks covered analysis, evidence integrity, PDF export, connections and desktop/mobile layout. Saved session checkpoints detect tail truncation against a securely retained copy; they are not independently signed or timestamped. Small prior NLP diagnostic matched 62 of 64 dataset labels; unknown pretrained-data overlap prevents treating that as independent accuracy.
