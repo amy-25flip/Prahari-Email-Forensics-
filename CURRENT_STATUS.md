@@ -2,6 +2,15 @@
 
 Date: 2026-09-10. Local entry point: backend/main.py. Use the project .venv. Hosting is deliberately deferred until local acceptance work is finished.
 
+**This is the oldest of the three status docs (110 tests, pre-attribution-engine).** `PS_PROGRESS.md`
+explicitly supersedes it, and `PS_ACCEPTANCE.md` is the current authoritative acceptance matrix (231
+tests, as of 2026-09-11). Read those two first; this file is kept as a historical snapshot of what was
+true on 2026-09-10, not a current status. In particular, every item below describing exact-match-only
+campaign correlation, hash-only attachment reputation with no dynamic execution, or checkpoints with no
+independent timestamping/encryption is now out of date -- see `PS_PROGRESS.md`'s 2026-09-11 entries for
+fuzzy campaign correlation, VirusTotal sandbox upload, ARC chain verification, OpenTimestamps blockchain
+checkpoint anchoring, and at-rest field encryption, all added after this file was last dated.
+
 ## Implemented and Tested
 
 - Original .eml upload and pasted email parsing; local BERT classification; grouped evidence score and separate analyst-review priority.

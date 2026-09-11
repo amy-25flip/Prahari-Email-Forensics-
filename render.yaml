@@ -29,3 +29,7 @@ services:
         sync: false
       - key: WAZUH_LOG_PATH
         sync: false
+      - key: DB_ENCRYPTION_KEY
+        sync: false
+      - key: PROTECTED_IDENTITIES_JSON
+        sync: false

@@ -7,7 +7,10 @@ See `SELECTION_README.md` for how to run it locally.
 
 ## Deployment
 
-Deployed to Render (free tier) via `render.yaml` and the root `Dockerfile`. Hugging Face Spaces was
+Configured for deployment to Render (free tier) via `render.yaml` and the root `Dockerfile` -- not yet
+deployed live (deprioritized by explicit user instruction; local demo is the actual submission
+requirement, see `PS_PROGRESS.md`). Render's free tier has no persistent disk, so `/data` (case
+history, PhishTank cache) will not survive a redeploy or idle-recycle once deployed. Hugging Face Spaces was
 considered but ruled out: as of this project's build, Spaces' Docker SDK requires a paid plan — only
 Static Spaces (no backend execution at all) and a limited free Gradio/ZeroGPU allowance are free, neither
 of which can run this app's FastAPI backend. Render's free tier (512MB RAM) is a real out-of-memory risk

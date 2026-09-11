@@ -17,6 +17,9 @@ def test_redacted_exports_preserve_original(client):
             assert report['subject'] not in response.text
     masked=client.get(f"/api/cases/{report['id']}/export/json?privacy=redacted").json()
     assert masked['body']=='[REDACTED]' and not masked['headers']
+    # Regression: redaction used to hardcode spf/dkim/dmarc and silently drop arc once
+    # authentication.py started returning it, so a redacted export lost ARC status entirely.
+    assert set(masked['authentication']) == {'spf', 'dkim', 'dmarc', 'arc'}
     assert masked['sha256']==report['sha256']
     assert client.get('/api/cases/'+report['id']).json()==report
     assert client.get('/api/verify').json()['valid']

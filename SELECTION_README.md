@@ -2,7 +2,7 @@
 
 > Historical setup notes. For the September 10 verified feature list and outstanding work, use CURRENT_STATUS.md, SECURITY_CHECKPOINT.md and SIEM_CONFIGURATION.md. SIEM connectors, configurable retention, request limits, domain intelligence and saved evidence checkpoints now exist. Use the project .venv rather than global Python. The older limitations below describe the earlier checkpoint, not the current acceptance status.
 
-This update extends the existing FastAPI/React project. The entry point is `backend/main.py`; `backend/app.py` is the older Flask experiment and is not used by this release. Existing old analyzer files are retained for reference; the selection API uses `engine.py`.
+This update extends the existing FastAPI/React project. The entry point is `backend/main.py`. The older Flask experiment (`backend/app.py` and its `analyzer.py`/`dkim_checker.py`/`url_scanner.py`/`ml_classifier.py` dependencies) was never used by this release and has been deleted (2026-09-11) after confirming nothing referenced it; the selection API uses `engine.py`.
 
 ## Run Locally
 

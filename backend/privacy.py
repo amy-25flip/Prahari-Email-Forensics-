@@ -2,7 +2,7 @@
 def redact(report):
     masked = '[REDACTED]'
     auth = {name: {'status': report['authentication'][name]['status'], 'detail': masked}
-            for name in ('spf', 'dkim', 'dmarc')}
+            for name in ('spf', 'dkim', 'dmarc', 'arc')}
     return {
         'id': report['id'], 'created': report['created'], 'sample': report.get('sample', False),
         'subject': masked, 'sender': masked, 'recipient': masked, 'body': masked,
