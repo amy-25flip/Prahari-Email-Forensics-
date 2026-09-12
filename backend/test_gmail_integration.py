@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 import pytest
 from googleapiclient.errors import HttpError
@@ -31,6 +32,32 @@ def _mock_valid_token(monkeypatch):
 
 def test_not_configured_without_token_file():
     assert gi.configured() is False
+
+
+def test_credentials_refresh_tolerates_unwritable_token_file(tmp_path, monkeypatch):
+    # Regression: found live on Render, where TOKEN_FILE points at a Secret File
+    # mount that likely isn't writable. Writing back a refreshed access token is
+    # a caching optimization, not a correctness requirement -- a failed write
+    # must not crash every call that needed fresh credentials.
+    token_path = tmp_path / 'gmail_token.json'
+    token_path.write_text(json.dumps({
+        'token': 'old', 'refresh_token': 'r', 'token_uri': 'https://oauth2.googleapis.com/token',
+        'client_id': 'cid', 'client_secret': 'secret', 'scopes': gi.SCOPES,
+    }))
+    monkeypatch.setattr(gi, 'TOKEN_FILE', token_path)
+
+    class FakeCreds:
+        expired = True
+        refresh_token = 'r'
+        def refresh(self, request): pass
+        def to_json(self): return '{}'
+
+    monkeypatch.setattr(gi.Credentials, 'from_authorized_user_file', staticmethod(lambda *a, **k: FakeCreds()))
+    def raise_oserror(self, *a, **k):
+        raise OSError('read-only filesystem')
+    monkeypatch.setattr(Path, 'write_text', raise_oserror)
+    creds = gi._credentials()
+    assert isinstance(creds, FakeCreds)
 
 
 def test_session_sid_persists_across_calls(tmp_path, monkeypatch):

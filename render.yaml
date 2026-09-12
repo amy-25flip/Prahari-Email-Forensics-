@@ -39,5 +39,7 @@ services:
         sync: false
       - key: GMAIL_TOKEN_FILE
         value: /etc/secrets/gmail_token.json
+      - key: GMAIL_STATE_FILE
+        value: /data/gmail_watch_state.json
       - key: GMAIL_CASES_READ_TOKEN
         sync: false

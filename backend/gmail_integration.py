@@ -24,8 +24,13 @@ TOKEN_FILE = Path(os.getenv('GMAIL_TOKEN_FILE', str(Path(__file__).parent / 'gma
 # Gitignored, machine-local: {"last_history_id": "...", "session_cookie": "..."}.
 # session_cookie lets every push-triggered analysis land in one stable case list
 # (store.session() otherwise has no notion of a fixed session without a real
-# browser cookie to reuse -- see main.py's boundary middleware).
-STATE_FILE = Path(__file__).parent / 'gmail_watch_state.json'
+# browser cookie to reuse -- see main.py's boundary middleware). Also overridable:
+# the Docker image only grants the app user write access to /data (see
+# Dockerfile), not the source directory this module lives in -- writing here
+# without GMAIL_STATE_FILE set to a writable path crashed every real deployment
+# call that touched state (session_sid, advance_watermark) with an unhandled
+# PermissionError/OSError, surfacing as a bare 500.
+STATE_FILE = Path(os.getenv('GMAIL_STATE_FILE', str(Path(__file__).parent / 'gmail_watch_state.json')))
 _state_lock = threading.Lock()
 
 
@@ -47,7 +52,15 @@ def _credentials():
     creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(GoogleRequest())
-        TOKEN_FILE.write_text(creds.to_json())
+        try:
+            TOKEN_FILE.write_text(creds.to_json())
+        except OSError:
+            # Persisting the refreshed access token is an optimization, not a
+            # correctness requirement -- the refresh_token itself doesn't get
+            # consumed/rotated by one use, so a failed write here (e.g. Render's
+            # Secret Files mount is read-only) just means the next call refreshes
+            # again from Google rather than reusing a cached access token.
+            pass
     return creds
 
 
