@@ -10,7 +10,11 @@ WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt
 ENV HF_HOME=/opt/model-cache HF_HUB_DISABLE_PROGRESS_BARS=1
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ealvaradob/bert-finetuned-phishing', allow_patterns=['*.json','*.txt','*.safetensors'])"
+# This repo ships weights as pytorch_model.bin, not .safetensors (confirmed via
+# HfApi().list_repo_files() -- do not assume a HF repo has safetensors available).
+# Missing '*.bin' here silently downloaded everything except the actual model
+# weights and only surfaced as a runtime OSError on first real deployment.
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ealvaradob/bert-finetuned-phishing', allow_patterns=['*.json','*.txt','*.safetensors','*.bin'])"
 COPY backend/ ./
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
 RUN useradd --uid 1000 --create-home appuser && mkdir /data && chown appuser /data && chmod -R a+rX /opt/model-cache
