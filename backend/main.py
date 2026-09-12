@@ -291,6 +291,47 @@ async def gmail_push(request: Request):
     return {'processed': len(processed), 'case_ids': [r['id'] for r in processed]}
 
 
+def _require_gmail_read_token(request):
+    # Unlike every other case-viewing endpoint, these read a single shared
+    # session with no per-caller session cookie to isolate against -- on a
+    # public URL watching a real mailbox (not a demo/dummy inbox), that means
+    # anyone who can reach the deployment could otherwise read real analyzed
+    # email content. GMAIL_CASES_READ_TOKEN must be explicitly configured
+    # (fail closed, not open, if unset) and presented as a bearer token.
+    import secrets
+    token = os.getenv('GMAIL_CASES_READ_TOKEN')
+    if not token:
+        raise HTTPException(503, 'Gmail case viewing is not configured')
+    auth = request.headers.get('authorization', '')
+    if not auth.startswith('Bearer ') or not secrets.compare_digest(auth[len('Bearer '):], token):
+        raise HTTPException(401, 'Invalid or missing read token')
+
+
+@app.get('/api/gmail/cases')
+def gmail_cases(request: Request):
+    """Every case analyzed from Gmail push notifications. These live under a
+    dedicated, stable session (see gmail_integration.session_sid()), not the
+    caller's own browser session cookie -- gated by GMAIL_CASES_READ_TOKEN
+    instead, since there's no per-analyst session to check against here."""
+    import gmail_integration
+    _require_gmail_read_token(request)
+    if not gmail_integration.configured():
+        raise HTTPException(503, 'Gmail push is not configured')
+    sid = gmail_integration.session_sid()
+    return [{k: r[k] for k in ('id', 'subject', 'sender', 'score', 'risk', 'created', 'sample')} for r in store.all_cases(sid)]
+
+
+@app.get('/api/gmail/cases/{cid}')
+def gmail_case(cid: str, request: Request):
+    import gmail_integration
+    _require_gmail_read_token(request)
+    if not gmail_integration.configured():
+        raise HTTPException(503, 'Gmail push is not configured')
+    result = store.get(gmail_integration.session_sid(), cid)
+    if not result: raise HTTPException(404, 'Case not found')
+    return result
+
+
 @app.post('/api/samples/{sample_id}')
 def analyze_sample(sample_id: str, request: Request):
     sample = next((s for s in SAMPLES if s['id'] == sample_id), None)

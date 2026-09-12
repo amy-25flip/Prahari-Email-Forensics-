@@ -239,3 +239,40 @@ def test_push_endpoint_rejects_malformed_envelope(client, monkeypatch):
     _mock_valid_token(monkeypatch)
     response = client.post('/api/gmail/push', json={'not': 'a real envelope'}, headers={'Authorization': 'Bearer fake'})
     assert response.status_code == 400
+
+
+def test_gmail_cases_endpoints_disabled_without_read_token(client, monkeypatch):
+    # Fail closed: unlike every other case-viewing endpoint, these have no
+    # per-caller session to isolate against, so an unset read token must deny
+    # access entirely, not default to open.
+    monkeypatch.delenv('GMAIL_CASES_READ_TOKEN', raising=False)
+    assert client.get('/api/gmail/cases').status_code == 503
+    assert client.get('/api/gmail/cases/anything').status_code == 503
+
+
+def test_gmail_cases_endpoints_reject_missing_or_wrong_read_token(client, monkeypatch):
+    monkeypatch.setenv('GMAIL_CASES_READ_TOKEN', 'the-real-token')
+    assert client.get('/api/gmail/cases').status_code == 401
+    assert client.get('/api/gmail/cases', headers={'Authorization': 'Bearer wrong'}).status_code == 401
+
+
+def test_gmail_cases_lists_push_triggered_cases_regardless_of_caller_session(client, monkeypatch, tmp_path):
+    # Regression: gmail-push cases live under a dedicated session, not whatever
+    # session cookie a browser happens to send -- /api/cases (session-scoped)
+    # would never show them, so this dedicated read path is the only way to
+    # actually see what the automated pipeline found.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setenv('GMAIL_CASES_READ_TOKEN', 'the-real-token')
+    read_headers = {'Authorization': 'Bearer the-real-token'}
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg1'])
+    monkeypatch.setattr(gi, 'fetch_raw', lambda message_id: b'From: a@b.com\r\nTo: c@d.com\r\nSubject: watched mail\r\n\r\nbody')
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '42'}).encode()).decode()
+    client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    listed = client.get('/api/gmail/cases', headers=read_headers).json()
+    assert len(listed) == 1 and listed[0]['subject'] == 'watched mail'
+    detail = client.get(f"/api/gmail/cases/{listed[0]['id']}", headers=read_headers)
+    assert detail.status_code == 200 and detail.json()['subject'] == 'watched mail'
+    assert client.get('/api/gmail/cases/does-not-exist', headers=read_headers).status_code == 404
