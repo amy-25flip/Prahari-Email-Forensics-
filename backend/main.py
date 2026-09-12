@@ -1,7 +1,9 @@
 import csv
 import asyncio
+import binascii
 import io
 import json
+import logging
 import os
 import threading
 import time
@@ -19,6 +21,23 @@ import siem
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, ValidationError, field_validator
 from samples import SAMPLES
 from request_limits import PeerLimiter
+
+gmail_push_logger = logging.getLogger('gmail_push')
+gmail_push_logger.setLevel(logging.INFO)
+if not gmail_push_logger.handlers:
+    # Configured independently of the root/uvicorn logging setup: uvicorn's
+    # default logging config only attaches handlers to its own 'uvicorn'/
+    # 'uvicorn.access' loggers, not to root, so with no handler here every
+    # .info() call below would be silently dropped in production (root
+    # defaults to WARNING with no handler) -- defeating the entire point of
+    # this diagnostic trail, which exists so Render logs can show exactly
+    # where a push notification succeeded or failed.
+    _gmail_push_handler = logging.StreamHandler()
+    _gmail_push_handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
+    gmail_push_logger.addHandler(_gmail_push_handler)
+# Own handler is self-contained; don't also emit through root (which may one
+# day gain a handler of its own) and print every line twice.
+gmail_push_logger.propagate = False
 
 
 @asynccontextmanager
@@ -256,12 +275,17 @@ async def gmail_push(request: Request):
     from starlette.concurrency import run_in_threadpool
     from googleapiclient.errors import HttpError
     import gmail_integration
+    gmail_push_logger.info('Gmail push notification received')
     audience = os.getenv('GMAIL_PUSH_AUDIENCE')
     expected_subject = os.getenv('GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL')
     if not audience or not expected_subject or not gmail_integration.configured():
+        gmail_push_logger.warning(
+            'Gmail push rejected: not configured audience=%s expected_subject=%s token_file_configured=%s',
+            bool(audience), bool(expected_subject), gmail_integration.configured())
         raise HTTPException(503, 'Gmail push is not configured')
     auth = request.headers.get('authorization', '')
     if not auth.startswith('Bearer '):
+        gmail_push_logger.warning('Gmail push rejected: missing bearer token')
         raise HTTPException(401, 'Missing bearer token')
     try:
         from google.oauth2 import id_token as google_id_token
@@ -269,17 +293,39 @@ async def gmail_push(request: Request):
         claims = google_id_token.verify_oauth2_token(auth[len('Bearer '):], google_requests.Request(), audience=audience)
         if claims.get('email') != expected_subject or not claims.get('email_verified'):
             raise ValueError('Unexpected token subject')
-    except Exception:
+        gmail_push_logger.info('Gmail push OIDC verified: email=%s audience=%s', claims.get('email'), audience)
+    except Exception as exc:
+        gmail_push_logger.warning('Gmail push rejected: invalid OIDC token (%s)', type(exc).__name__)
         raise HTTPException(401, 'Invalid push authentication')
     try:
         envelope = await request.json()
+        pubsub_message_id = envelope.get('message', {}).get('messageId')
         data = json.loads(gmail_integration.b64decode(envelope['message']['data']))
         history_id = data['historyId']
-    except (KeyError, ValueError, TypeError):
+        email_address = data.get('emailAddress')
+        gmail_push_logger.info(
+            'Gmail push envelope parsed: historyId=%s emailAddress=%s pubsubMessageId=%s',
+            history_id, email_address, pubsub_message_id)
+    except (KeyError, ValueError, TypeError, UnicodeDecodeError, binascii.Error) as exc:
+        gmail_push_logger.warning('Gmail push rejected: malformed Pub/Sub envelope (%s)', type(exc).__name__)
         raise HTTPException(400, 'Malformed Pub/Sub push envelope')
-    request.state.sid = gmail_integration.session_sid()
-    message_ids = await run_in_threadpool(gmail_integration.diff_new_message_ids, history_id)
+    try:
+        request.state.sid = gmail_integration.session_sid()
+        gmail_push_logger.info('Gmail push session resolved: sid=%s historyId=%s', request.state.sid, history_id)
+    except Exception as exc:
+        gmail_push_logger.exception('Gmail push session resolution failed for historyId=%s: %s', history_id, exc)
+        raise
+    try:
+        message_ids = await run_in_threadpool(gmail_integration.diff_new_message_ids, history_id)
+        gmail_push_logger.info(
+            'Gmail push diff complete: historyId=%s message_count=%d message_ids=%s',
+            history_id, len(message_ids), message_ids)
+    except Exception as exc:
+        gmail_push_logger.exception('Gmail push diff failed for historyId=%s: %s', history_id, exc)
+        raise
     processed = []
+    skipped = 0
+    failed = 0
     for mid in message_ids:
         # Claim BEFORE fetching, atomically -- not a check then a separate mark
         # after fetch -- so two concurrent notifications for the same message
@@ -288,15 +334,44 @@ async def gmail_push(request: Request):
         # "not yet processed" check and both store a duplicate case. Confirmed
         # live as a real bug before this existed.
         if not await run_in_threadpool(gmail_integration.claim_processed, mid):
+            skipped += 1
+            gmail_push_logger.info('Gmail push message skipped: historyId=%s messageId=%s reason=already_claimed', history_id, mid)
             continue
         try:
+            gmail_push_logger.info('Gmail push message claimed: historyId=%s messageId=%s', history_id, mid)
             raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
-            processed.append(await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None))
-        except (HTTPException, HttpError):
+            gmail_push_logger.info('Gmail push message fetched: historyId=%s messageId=%s bytes=%d', history_id, mid, len(raw))
+            result = await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None)
+            processed.append(result)
+            gmail_push_logger.info(
+                'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
+                history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
+        except HTTPException as exc:
+            failed += 1
+            gmail_push_logger.warning(
+                'Gmail push message failed with HTTPException: historyId=%s messageId=%s status=%s detail=%s',
+                history_id, mid, exc.status_code, exc.detail)
+            continue  # one bad/oversized/over-quota app-level message must not sink the rest of the batch
+        except HttpError as exc:
+            failed += 1
+            status = getattr(getattr(exc, 'resp', None), 'status', None)
+            gmail_push_logger.warning(
+                'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
+                history_id, mid, status, exc)
             continue  # one bad/oversized/over-quota/Gmail-API-error message must not sink the rest of the batch
     # Advance only after attempting every id this notification covers -- not before
     # processing, so a message a batch never got to isn't wrongly marked "seen".
-    await run_in_threadpool(gmail_integration.advance_watermark, history_id)
+    try:
+        await run_in_threadpool(gmail_integration.advance_watermark, history_id)
+        gmail_push_logger.info(
+            'Gmail push watermark advanced: historyId=%s processed=%d skipped=%d failed=%d total=%d',
+            history_id, len(processed), skipped, failed, len(message_ids))
+    except Exception as exc:
+        gmail_push_logger.exception('Gmail push watermark advance failed for historyId=%s: %s', history_id, exc)
+        raise
+    gmail_push_logger.info(
+        'Gmail push notification complete: historyId=%s processed=%d skipped=%d failed=%d case_ids=%s',
+        history_id, len(processed), skipped, failed, [r['id'] for r in processed])
     return {'processed': len(processed), 'case_ids': [r['id'] for r in processed]}
 
 

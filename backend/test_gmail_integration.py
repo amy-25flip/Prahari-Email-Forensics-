@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -347,6 +348,35 @@ def test_push_endpoint_processes_valid_notification_end_to_end(client, monkeypat
     assert len(cases) == 1 and cases[0]['subject'] == 'watched mail'
 
 
+def test_push_endpoint_logs_successful_notification_steps(client, monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    raw = b'From: a@b.com\r\nTo: c@d.com\r\nSubject: logged mail\r\n\r\nbody text'
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg-log'])
+    monkeypatch.setattr(gi, 'fetch_raw', lambda message_id: raw)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    caplog.set_level(logging.INFO, logger='gmail_push')
+
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '4242'}).encode()).decode()
+    response = client.post(
+        '/api/gmail/push',
+        json={'message': {'data': payload, 'messageId': 'pubsub-1'}},
+        headers={'Authorization': 'Bearer fake'},
+    )
+
+    assert response.status_code == 200
+    logs = caplog.text
+    assert 'Gmail push OIDC verified' in logs
+    assert 'Gmail push envelope parsed: historyId=4242 emailAddress=a@b.com pubsubMessageId=pubsub-1' in logs
+    assert "Gmail push diff complete: historyId=4242 message_count=1 message_ids=['msg-log']" in logs
+    assert 'Gmail push message claimed: historyId=4242 messageId=msg-log' in logs
+    assert 'Gmail push message fetched: historyId=4242 messageId=msg-log bytes=' in logs
+    assert 'Gmail push message analyzed: historyId=4242 messageId=msg-log caseId=' in logs
+    assert 'Gmail push watermark advanced: historyId=4242 processed=1 skipped=0 failed=0 total=1' in logs
+    assert 'Gmail push notification complete: historyId=4242 processed=1 skipped=0 failed=0' in logs
+
+
 def test_push_endpoint_advances_watermark_even_when_a_message_fails_to_store(client, monkeypatch, tmp_path):
     # A per-message processing failure (e.g. session case-cap, rate limit) must not
     # crash the whole notification or leave the watermark stuck -- but this does mean
@@ -374,6 +404,19 @@ def test_push_endpoint_rejects_malformed_envelope(client, monkeypatch):
     _mock_valid_token(monkeypatch)
     response = client.post('/api/gmail/push', json={'not': 'a real envelope'}, headers={'Authorization': 'Bearer fake'})
     assert response.status_code == 400
+
+
+def test_push_endpoint_rejects_malformed_base64_envelope(client, monkeypatch, caplog):
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    caplog.set_level(logging.WARNING, logger='gmail_push')
+    response = client.post(
+        '/api/gmail/push',
+        json={'message': {'data': 'not valid base64!!!'}},
+        headers={'Authorization': 'Bearer fake'},
+    )
+    assert response.status_code == 400
+    assert 'Gmail push rejected: malformed Pub/Sub envelope' in caplog.text
 
 
 def test_gmail_cases_endpoints_disabled_without_read_token(client, monkeypatch):
