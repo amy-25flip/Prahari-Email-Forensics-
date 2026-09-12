@@ -1,8 +1,12 @@
 """Local-only inference. Never silently substitute rules for a trained model."""
 import json
+import logging
 import os
 import threading
+import traceback
 from pathlib import Path
+
+logger = logging.getLogger('local_model')
 
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
@@ -51,6 +55,12 @@ def load():
                 detail = f'Local CPU inference; custom model source ({MODEL_ID}); provenance not verified, evaluation pending'
     except Exception as exc:
         status, detail = 'unavailable', f'Model not loaded ({type(exc).__name__}); no AI prediction available'
+        # The health-check detail stays short and user-facing on purpose; the actual
+        # exception was previously swallowed entirely with no trace anywhere, making a
+        # real load failure (bad cache, permissions, wrong MODEL_ID, OOM-adjacent errors
+        # surfacing as OSError) undiagnosable from deployment logs alone.
+        logger.error('Model load failed for MODEL_ID=%s: %s', MODEL_ID, exc)
+        logger.error(traceback.format_exc())
 
 
 def classify(text):
