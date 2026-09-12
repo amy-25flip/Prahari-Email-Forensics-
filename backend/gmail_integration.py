@@ -171,6 +171,44 @@ def fetch_raw(message_id):
     return b64decode(_service().users().messages().get(userId='me', id=message_id, format='raw').execute()['raw'])
 
 
+# Bounded FIFO of recently-processed Gmail message ids, so the same email
+# doesn't get analyzed and stored twice. This is a real, observed failure mode:
+# diff_new_message_ids() dedupes *within* one call (a message reported by both
+# a messageAdded and a labelAdded record in the same history window), but
+# Gmail can also emit that message's messageAdded and labelAdded events across
+# TWO SEPARATE notifications/historyId windows -- each notification's diff
+# then sees the message as "new" independently, since neither the watermark
+# nor the per-call dedup has any memory of message ids across calls. Confirmed
+# live: the same email (identical SHA-256) was stored as two separate cases,
+# ~38 seconds apart, from two distinct push notifications.
+_MAX_PROCESSED_IDS = 500
+
+
+def claim_processed(message_id):
+    """Atomically claim this message id before fetching/processing it. Returns
+    True if this call is the one that claimed it (proceed), False if another
+    call already claimed it first (skip).
+
+    Must be a single atomic check-and-mark, not a separate already_processed()
+    check followed later by a mark_processed() call: with those as two calls,
+    two concurrent Pub/Sub deliveries for the same message could both pass the
+    check before either marks it, both fetch, and both store a duplicate case
+    -- a real risk given Pub/Sub's at-least-once delivery semantics and this
+    app's own concurrent-request handling (two analysis slots, an async
+    endpoint). Combining check-and-mark under one _state_lock acquisition
+    closes that race: only one caller can ever see message_id absent and add it.
+    """
+    with _state_lock:
+        state = _read_state()
+        ids = state.get('processed_message_ids', [])
+        if message_id in ids:
+            return False
+        ids.append(message_id)
+        state['processed_message_ids'] = ids[-_MAX_PROCESSED_IDS:]
+        _write_state(state)
+        return True
+
+
 def advance_watermark(notified_history_id):
     """Commit the watermark. Call this once per notification after attempting to
     process every id diff_new_message_ids() returned -- not before, and not per

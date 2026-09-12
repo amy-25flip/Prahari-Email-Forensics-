@@ -254,6 +254,7 @@ async def gmail_push(request: Request):
     actually arrives here).
     """
     from starlette.concurrency import run_in_threadpool
+    from googleapiclient.errors import HttpError
     import gmail_integration
     audience = os.getenv('GMAIL_PUSH_AUDIENCE')
     expected_subject = os.getenv('GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL')
@@ -280,11 +281,19 @@ async def gmail_push(request: Request):
     message_ids = await run_in_threadpool(gmail_integration.diff_new_message_ids, history_id)
     processed = []
     for mid in message_ids:
+        # Claim BEFORE fetching, atomically -- not a check then a separate mark
+        # after fetch -- so two concurrent notifications for the same message
+        # (Gmail can report it via a messageAdded event in one notification and
+        # a labelAdded event in a later, separate one) can't both race past a
+        # "not yet processed" check and both store a duplicate case. Confirmed
+        # live as a real bug before this existed.
+        if not await run_in_threadpool(gmail_integration.claim_processed, mid):
+            continue
         try:
             raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
             processed.append(await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None))
-        except HTTPException:
-            continue  # one bad/oversized/over-quota message must not sink the rest of the batch
+        except (HTTPException, HttpError):
+            continue  # one bad/oversized/over-quota/Gmail-API-error message must not sink the rest of the batch
     # Advance only after attempting every id this notification covers -- not before
     # processing, so a message a batch never got to isn't wrongly marked "seen".
     await run_in_threadpool(gmail_integration.advance_watermark, history_id)

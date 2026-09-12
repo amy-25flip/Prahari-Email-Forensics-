@@ -235,6 +235,98 @@ def test_push_endpoint_does_not_require_app_header_or_hit_peer_limit(client, mon
     assert response.status_code != 403
 
 
+def test_claim_processed_only_the_first_caller_succeeds():
+    assert gi.claim_processed('msg1') is True
+    assert gi.claim_processed('msg1') is False  # already claimed
+    assert gi.claim_processed('msg2') is True  # a different id is unaffected
+
+
+def test_claim_processed_is_bounded_fifo(monkeypatch):
+    monkeypatch.setattr(gi, '_MAX_PROCESSED_IDS', 3)
+    for mid in ['a', 'b', 'c', 'd']:
+        gi.claim_processed(mid)
+    # oldest ('a') evicted once the bound is exceeded -- claimable again
+    assert gi.claim_processed('a') is True
+    assert gi.claim_processed('d') is False
+
+
+def test_claim_processed_is_race_safe_under_true_concurrency():
+    # Regression: check-then-act (a separate already_processed() check followed
+    # later by mark_processed()) left a race window where two concurrent
+    # Pub/Sub deliveries for the same message could both pass the check before
+    # either marked it. claim_processed() must be a single atomic operation --
+    # verified here with real concurrent threads, not just sequential calls.
+    import threading
+    results = []
+    barrier = threading.Barrier(8)
+    def attempt():
+        barrier.wait()  # maximize actual overlap, not just interleaving
+        results.append(gi.claim_processed('contested-id'))
+    threads = [threading.Thread(target=attempt) for _ in range(8)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert results.count(True) == 1  # exactly one winner, no matter the race
+
+
+def test_push_endpoint_skips_a_message_id_seen_in_an_earlier_notification(client, monkeypatch, tmp_path):
+    # Regression: confirmed live -- the same email was stored as two separate
+    # cases (identical SHA-256) because Gmail reported it via a messageAdded
+    # event in one notification and a labelAdded event in a later, separate
+    # notification. diff_new_message_ids()'s own per-call dedup can't catch
+    # this since each call only sees its own history window.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    raw = b'From: a@b.com\r\nTo: c@d.com\r\nSubject: watched mail\r\n\r\nbody'
+    fetch_calls = []
+    def fetch_raw(message_id):
+        fetch_calls.append(message_id)
+        return raw
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg1'])
+    payload1 = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '10'}).encode()).decode()
+    first = client.post('/api/gmail/push', json={'message': {'data': payload1}}, headers={'Authorization': 'Bearer fake'})
+    assert first.status_code == 200 and first.json()['processed'] == 1
+
+    # A later, separate notification reports the SAME message id again.
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg1'])
+    payload2 = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '20'}).encode()).decode()
+    second = client.post('/api/gmail/push', json={'message': {'data': payload2}}, headers={'Authorization': 'Bearer fake'})
+    assert second.status_code == 200
+    assert second.json()['processed'] == 0  # skipped, not reprocessed
+    assert fetch_calls == ['msg1']  # only fetched once, across both notifications
+
+    sid = gi.session_sid()
+    assert len(store.all_cases(sid)) == 1  # exactly one case, not a duplicate
+
+
+def test_push_endpoint_survives_a_gmail_api_error_on_one_message(client, monkeypatch, tmp_path):
+    # Regression: fetch_raw() can raise googleapiclient's HttpError (a real
+    # Gmail API failure, distinct from this app's own HTTPException) -- the
+    # loop previously only caught HTTPException, so an HttpError would crash
+    # the entire batch AND skip advance_watermark() entirely, potentially
+    # reprocessing already-stored messages on the next notification.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['bad-msg', 'good-msg'])
+    def fetch_raw(message_id):
+        if message_id == 'bad-msg':
+            resp = type('R', (), {'status': 500, 'reason': 'Server Error'})()
+            raise HttpError(resp, b'boom')
+        return b'From: a@b.com\r\nTo: c@d.com\r\nSubject: good one\r\n\r\nbody'
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    advanced = []
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: advanced.append(history_id))
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '77'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 1  # good-msg still made it through
+    assert advanced == ['77']  # watermark still advances despite the mid-batch error
+
+
 def test_push_endpoint_processes_valid_notification_end_to_end(client, monkeypatch, tmp_path):
     monkeypatch.setattr(store, 'DATA', tmp_path)
     _configure_push_env(monkeypatch)
