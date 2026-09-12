@@ -24,13 +24,15 @@ TOKEN_FILE = Path(os.getenv('GMAIL_TOKEN_FILE', str(Path(__file__).parent / 'gma
 # Gitignored, machine-local: {"last_history_id": "...", "session_cookie": "..."}.
 # session_cookie lets every push-triggered analysis land in one stable case list
 # (store.session() otherwise has no notion of a fixed session without a real
-# browser cookie to reuse -- see main.py's boundary middleware). Also overridable:
-# the Docker image only grants the app user write access to /data (see
-# Dockerfile), not the source directory this module lives in -- writing here
-# without GMAIL_STATE_FILE set to a writable path crashed every real deployment
-# call that touched state (session_sid, advance_watermark) with an unhandled
-# PermissionError/OSError, surfacing as a bare 500.
-STATE_FILE = Path(os.getenv('GMAIL_STATE_FILE', str(Path(__file__).parent / 'gmail_watch_state.json')))
+# browser cookie to reuse -- see main.py's boundary middleware).
+#
+# Defaults under DATA_DIR (same pattern as store.py's own DATA), not next to this
+# module's source: the Docker image only grants the app user write access to
+# /data (see Dockerfile's chown), not the source directory -- writing there
+# crashed every real deployment call that touched state (session_sid,
+# advance_watermark) with an unhandled PermissionError/OSError, surfacing as a
+# bare 500. GMAIL_STATE_FILE remains available to override entirely if needed.
+STATE_FILE = Path(os.getenv('GMAIL_STATE_FILE', str(Path(os.getenv('DATA_DIR', str(Path(__file__).parent))) / 'gmail_watch_state.json')))
 _state_lock = threading.Lock()
 
 
@@ -69,13 +71,26 @@ def _service():
 
 
 def _read_state():
-    if STATE_FILE.exists():
+    if not STATE_FILE.exists():
+        return {}
+    try:
         return json.loads(STATE_FILE.read_text())
-    return {}
+    except (OSError, ValueError):
+        # A corrupt/unreadable state file must not permanently break every
+        # subsequent Gmail push (session_sid, diff_new_message_ids all read
+        # this) -- treat it the same as "no state yet" rather than crashing.
+        return {}
 
 
 def _write_state(state):
-    STATE_FILE.write_text(json.dumps(state))
+    # Atomic write: a process killed mid-write (deploy restart, OOM, etc.) must
+    # never leave a half-written/corrupt STATE_FILE behind, since a corrupt file
+    # would otherwise break every subsequent read -- the same class of "one bad
+    # write crashes everything after it" bug this module already hit once on Render.
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_FILE.with_suffix(STATE_FILE.suffix + '.tmp')
+    tmp.write_text(json.dumps(state))
+    os.replace(tmp, STATE_FILE)
 
 
 def session_sid():

@@ -17,6 +17,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 # Read-only is sufficient: users.watch() + users.history.list() + users.messages.get()
 # all work under this scope. No send/modify/delete access is requested.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+# Deliberately always local (not gmail_integration.TOKEN_FILE / GMAIL_TOKEN_FILE):
+# this script needs an interactive browser login, which only ever happens on your
+# own machine, never on a deployed server -- its output gets manually copied into
+# Render's Secret Files afterward, it doesn't write there directly.
 CLIENT_SECRETS_FILE = Path(__file__).parent / 'gmail_oauth_client.json'
 TOKEN_FILE = Path(__file__).parent / 'gmail_token.json'
 

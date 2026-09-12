@@ -60,6 +60,22 @@ def test_credentials_refresh_tolerates_unwritable_token_file(tmp_path, monkeypat
     assert isinstance(creds, FakeCreds)
 
 
+def test_read_state_tolerates_corrupt_file(monkeypatch):
+    # Regression: a state file corrupted by an interrupted write (deploy restart,
+    # OOM) must not permanently break every subsequent Gmail push -- treat it as
+    # "no state yet" rather than raising out of json.loads.
+    gi.STATE_FILE.write_text('not valid json{{{')
+    assert gi._read_state() == {}
+
+
+def test_write_state_is_atomic_and_creates_parent_dir(tmp_path, monkeypatch):
+    nested = tmp_path / 'nested' / 'dir' / 'gmail_watch_state.json'
+    monkeypatch.setattr(gi, 'STATE_FILE', nested)
+    gi._write_state({'last_history_id': '5'})
+    assert json.loads(nested.read_text()) == {'last_history_id': '5'}
+    assert not nested.with_suffix('.json.tmp').exists()
+
+
 def test_session_sid_persists_across_calls(tmp_path, monkeypatch):
     monkeypatch.setattr(store, 'DATA', tmp_path)
     store.init()
