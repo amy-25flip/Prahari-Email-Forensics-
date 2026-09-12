@@ -291,20 +291,33 @@ async def gmail_push(request: Request):
     return {'processed': len(processed), 'case_ids': [r['id'] for r in processed]}
 
 
+def _require_bearer_token(request, env_var, unconfigured_detail):
+    # Fail closed: the env var must be explicitly configured, never defaulting
+    # to open just because it's unset.
+    import secrets
+    token = os.getenv(env_var)
+    if not token:
+        raise HTTPException(503, unconfigured_detail)
+    auth = request.headers.get('authorization', '')
+    if not auth.startswith('Bearer ') or not secrets.compare_digest(auth[len('Bearer '):], token):
+        raise HTTPException(401, 'Invalid or missing token')
+
+
 def _require_gmail_read_token(request):
     # Unlike every other case-viewing endpoint, these read a single shared
     # session with no per-caller session cookie to isolate against -- on a
     # public URL watching a real mailbox (not a demo/dummy inbox), that means
     # anyone who can reach the deployment could otherwise read real analyzed
-    # email content. GMAIL_CASES_READ_TOKEN must be explicitly configured
-    # (fail closed, not open, if unset) and presented as a bearer token.
-    import secrets
-    token = os.getenv('GMAIL_CASES_READ_TOKEN')
-    if not token:
-        raise HTTPException(503, 'Gmail case viewing is not configured')
-    auth = request.headers.get('authorization', '')
-    if not auth.startswith('Bearer ') or not secrets.compare_digest(auth[len('Bearer '):], token):
-        raise HTTPException(401, 'Invalid or missing read token')
+    # email content.
+    _require_bearer_token(request, 'GMAIL_CASES_READ_TOKEN', 'Gmail case viewing is not configured')
+
+
+def _require_gmail_watch_admin_token(request):
+    # Deliberately a separate, stronger-privilege token from the read token above:
+    # this is a mutating action (re-registers the watch and resets last_history_id
+    # to "now"), so anyone holding it could effectively cause unprocessed mail to
+    # be silently skipped -- a read-only viewing token should not also grant this.
+    _require_bearer_token(request, 'GMAIL_WATCH_ADMIN_TOKEN', 'Gmail watch administration is not configured')
 
 
 @app.get('/api/gmail/cases')
@@ -330,6 +343,28 @@ def gmail_case(cid: str, request: Request):
     result = store.get(gmail_integration.session_sid(), cid)
     if not result: raise HTTPException(404, 'Case not found')
     return result
+
+
+@app.post('/api/gmail/watch/start')
+def gmail_watch_start(request: Request):
+    """(Re-)register the Gmail push watch, run on THIS instance -- not a local
+    script. gmail_watch_start.py (the CLI equivalent) only ever runs on whoever's
+    own machine, writing the initial watermark to THEIR local state file; running
+    it there does nothing for a deployed instance, since state lives wherever
+    GMAIL_STATE_FILE/DATA_DIR points on that instance, not on the developer's
+    machine. This is the only way to actually seed a deployed instance's own
+    watermark so its first real push notification doesn't fall back to the
+    documented "missed the triggering message" edge case."""
+    import gmail_integration
+    _require_gmail_watch_admin_token(request)
+    topic = os.getenv('GMAIL_PUBSUB_TOPIC')
+    if not topic or not gmail_integration.configured():
+        raise HTTPException(503, 'Gmail push is not configured')
+    try:
+        response = gmail_integration.start_watch(topic)
+    except Exception as exc:
+        raise HTTPException(502, f'Gmail watch registration failed ({type(exc).__name__})') from exc
+    return {'historyId': response['historyId'], 'expiration': response['expiration']}
 
 
 @app.post('/api/samples/{sample_id}')

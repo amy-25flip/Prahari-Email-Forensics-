@@ -319,3 +319,68 @@ def test_gmail_cases_lists_push_triggered_cases_regardless_of_caller_session(cli
     detail = client.get(f"/api/gmail/cases/{listed[0]['id']}", headers=read_headers)
     assert detail.status_code == 200 and detail.json()['subject'] == 'watched mail'
     assert client.get('/api/gmail/cases/does-not-exist', headers=read_headers).status_code == 404
+
+
+def test_diff_new_message_ids_catches_label_added_records_too(monkeypatch):
+    # Regression: watching only 'messageAdded' silently missed real messages --
+    # Gmail can report a message reaching INBOX via a separate 'labelAdded'
+    # history record instead (e.g. if the label is applied after a filter runs),
+    # which the previous version never checked.
+    records = [{'labelsAdded': [{'message': {'id': 'msg1'}, 'labelIds': ['INBOX', 'UNREAD']}]}]
+    monkeypatch.setattr(gi, '_service', lambda: FakeService(records, {}))
+    assert gi.diff_new_message_ids('999') == ['msg1']
+
+
+def test_diff_new_message_ids_ignores_label_added_for_other_labels(monkeypatch):
+    records = [{'labelsAdded': [{'message': {'id': 'msg1'}, 'labelIds': ['IMPORTANT']}]}]
+    monkeypatch.setattr(gi, '_service', lambda: FakeService(records, {}))
+    assert gi.diff_new_message_ids('999') == []
+
+
+def test_diff_new_message_ids_dedupes_message_reported_both_ways(monkeypatch):
+    records = [{
+        'messagesAdded': [{'message': {'id': 'msg1'}}],
+        'labelsAdded': [{'message': {'id': 'msg1'}, 'labelIds': ['INBOX']}],
+    }]
+    monkeypatch.setattr(gi, '_service', lambda: FakeService(records, {}))
+    assert gi.diff_new_message_ids('999') == ['msg1']
+
+
+def test_gmail_watch_start_endpoint_disabled_without_topic(client, monkeypatch):
+    monkeypatch.setenv('GMAIL_WATCH_ADMIN_TOKEN', 'the-admin-token')
+    monkeypatch.delenv('GMAIL_PUBSUB_TOPIC', raising=False)
+    response = client.post('/api/gmail/watch/start', headers={**HEADERS, 'Authorization': 'Bearer the-admin-token'})
+    assert response.status_code == 503
+
+
+def test_gmail_watch_start_endpoint_requires_admin_token(client, monkeypatch):
+    monkeypatch.setenv('GMAIL_PUBSUB_TOPIC', 'projects/p/topics/t')
+    monkeypatch.setenv('GMAIL_WATCH_ADMIN_TOKEN', 'the-admin-token')
+    assert client.post('/api/gmail/watch/start', headers=HEADERS).status_code == 401
+
+
+def test_gmail_watch_start_endpoint_rejects_the_read_only_cases_token(client, monkeypatch):
+    # Regression: the watch/start endpoint mutates state (resets last_history_id
+    # to "now"), so the separate read-only GMAIL_CASES_READ_TOKEN must not also
+    # work here -- confirmed in review that reusing one token for both would let
+    # a read-only credential holder cause unprocessed mail to be silently skipped.
+    monkeypatch.setenv('GMAIL_PUBSUB_TOPIC', 'projects/p/topics/t')
+    monkeypatch.setenv('GMAIL_WATCH_ADMIN_TOKEN', 'the-admin-token')
+    monkeypatch.setenv('GMAIL_CASES_READ_TOKEN', 'the-read-token')
+    response = client.post('/api/gmail/watch/start', headers={**HEADERS, 'Authorization': 'Bearer the-read-token'})
+    assert response.status_code == 401
+
+
+def test_gmail_watch_start_endpoint_registers_watch_on_this_instance(client, monkeypatch):
+    # This is the actual fix: gmail_watch_start.py (the CLI script) only ever
+    # writes to whoever's own local machine's state file. Running it against a
+    # deployed instance's Gmail account does nothing for THAT instance's own
+    # watermark -- this endpoint is what actually seeds it correctly, by running
+    # start_watch() in the same process/filesystem the push handler itself reads.
+    monkeypatch.setenv('GMAIL_PUBSUB_TOPIC', 'projects/p/topics/t')
+    monkeypatch.setenv('GMAIL_WATCH_ADMIN_TOKEN', 'the-admin-token')
+    monkeypatch.setattr(gi, 'configured', lambda: True)
+    monkeypatch.setattr(gi, 'start_watch', lambda topic: {'historyId': '123', 'expiration': '999'})
+    response = client.post('/api/gmail/watch/start', headers={**HEADERS, 'Authorization': 'Bearer the-admin-token'})
+    assert response.status_code == 200
+    assert response.json() == {'historyId': '123', 'expiration': '999'}

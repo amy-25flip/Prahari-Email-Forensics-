@@ -138,12 +138,21 @@ def diff_new_message_ids(notified_history_id):
     try:
         page_token = None
         while True:
+            # Both historyTypes matter: Gmail can report a message reaching INBOX
+            # as a 'messageAdded' record, or (if the label is applied in a
+            # separate step, e.g. after a filter runs) as a 'labelAdded' record
+            # on an already-added message. Watching only 'messageAdded' silently
+            # missed real messages -- confirmed against Gmail's own history.list
+            # docs, which list these as distinct history types.
             history = service.users().history().list(
-                userId='me', startHistoryId=start_id, historyTypes=['messageAdded'],
+                userId='me', startHistoryId=start_id, historyTypes=['messageAdded', 'labelAdded'],
                 labelId='INBOX', pageToken=page_token).execute()
             for record in history.get('history', []):
                 for added in record.get('messagesAdded', []):
                     message_ids.append(added['message']['id'])
+                for added in record.get('labelsAdded', []):
+                    if 'INBOX' in added.get('labelIds', []):
+                        message_ids.append(added['message']['id'])
             page_token = history.get('nextPageToken')
             if not page_token:
                 break
@@ -154,7 +163,8 @@ def diff_new_message_ids(notified_history_id):
         # side) -- can't recover the exact diff. Don't guess at old mail; just
         # re-anchor the watermark below so future notifications work correctly.
         message_ids = []
-    return message_ids
+    return list(dict.fromkeys(message_ids))  # dedupe, preserve order (same message
+    # could appear in both a messageAdded and a labelAdded record)
 
 
 def fetch_raw(message_id):
