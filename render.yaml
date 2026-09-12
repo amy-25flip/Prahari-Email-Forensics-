@@ -37,3 +37,5 @@ services:
         sync: false
       - key: GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL
         sync: false
+      - key: GMAIL_TOKEN_FILE
+        value: /etc/secrets/gmail_token.json

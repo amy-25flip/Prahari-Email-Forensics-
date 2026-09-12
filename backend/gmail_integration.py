@@ -6,6 +6,7 @@ module never sends, modifies, or deletes anything in the mailbox.
 """
 import base64
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -15,7 +16,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-TOKEN_FILE = Path(__file__).parent / 'gmail_token.json'
+# Render's Secret Files always land at a fixed /etc/secrets/<filename> path (you
+# can't choose an arbitrary mount path there), so this must be overridable rather
+# than hardcoded next to the source -- GMAIL_TOKEN_FILE=/etc/secrets/gmail_token.json
+# on Render; unset locally, where the gitignored file just sits next to this module.
+TOKEN_FILE = Path(os.getenv('GMAIL_TOKEN_FILE', str(Path(__file__).parent / 'gmail_token.json')))
 # Gitignored, machine-local: {"last_history_id": "...", "session_cookie": "..."}.
 # session_cookie lets every push-triggered analysis land in one stable case list
 # (store.session() otherwise has no notion of a fixed session without a real
