@@ -15,3 +15,7 @@ backend/.pytest_tmp/
 backend/serve_local.py
 .claude/
 training/output/
+backend/gmail_oauth_client.json
+backend/gmail_token.json
+backend/gmail_watch_state.json
+backend/gmail_oauth_setup.log

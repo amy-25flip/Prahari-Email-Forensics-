@@ -33,3 +33,7 @@ services:
         sync: false
       - key: PROTECTED_IDENTITIES_JSON
         sync: false
+      - key: GMAIL_PUSH_AUDIENCE
+        sync: false
+      - key: GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL
+        sync: false

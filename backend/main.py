@@ -51,9 +51,13 @@ peer_limiter = PeerLimiter()
 
 @app.middleware('http')
 async def boundary(request: Request, call_next):
-    if request.method in ('POST', 'DELETE') and request.headers.get('x-requested-with') != 'Email-Threat-Detection':
+    # Pub/Sub push requests can't send our custom app header and aren't a per-analyst
+    # browser peer -- they're authenticated by their own signed OIDC bearer token,
+    # verified inside the handler itself (see /api/gmail/push).
+    push = request.url.path == '/api/gmail/push'
+    if request.method in ('POST', 'DELETE') and not push and request.headers.get('x-requested-with') != 'Email-Threat-Detection':
         return JSONResponse({'detail': 'Missing application request header'}, status_code=403)
-    if request.method in ('POST', 'DELETE'):
+    if request.method in ('POST', 'DELETE') and not push:
         peer = request.client.host if request.client else 'unknown'
         if not peer_limiter.allow(peer):
             return JSONResponse({'detail': 'Peer request limit reached. Retry in one minute.'}, status_code=429, headers={'Retry-After':'60'})
@@ -68,7 +72,7 @@ async def boundary(request: Request, call_next):
         except TimeoutError:
             return JSONResponse({'detail': 'Upload timed out.'}, status_code=408)
         request._body = b''.join(chunks)
-    if request.url.path in ('/api/health', '/api/ready') or not request.url.path.startswith('/api/'):
+    if request.url.path in ('/api/health', '/api/ready', '/api/gmail/push') or not request.url.path.startswith('/api/'):
         return await call_next(request)
     try:
         sid, cookie = store.session(request.cookies.get('efp_session'))
@@ -96,12 +100,13 @@ async def response_security(request: Request, call_next):
 
 @app.get('/api/health')
 def health():
-    import ip_reputation, attachment_reputation, db_encryption
+    import ip_reputation, attachment_reputation, db_encryption, gmail_integration
     return {'status': 'ready', 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': store.RETENTION_SECONDS / 3600,
             'reputation': reputation.status(),
             'ip_reputation': {'configured': bool(ip_reputation.config())},
             'attachment_reputation': {'configured': bool(attachment_reputation.config())},
-            'db_encryption': db_encryption.status()}
+            'db_encryption': db_encryption.status(),
+            'gmail_push': {'configured': bool(os.getenv('GMAIL_PUSH_AUDIENCE')) and gmail_integration.configured()}}
 
 
 @app.get('/api/ready')
@@ -229,6 +234,61 @@ async def analyze_request(request: Request):
             context = verified_context
         except (ValueError, ValidationError): raise HTTPException(400, 'Receiver evidence could not be verified against the email and configured receiver')
     return await run_in_threadpool(execute, request, content, source, live, False, context, receiver)
+
+
+@app.post('/api/gmail/push')
+async def gmail_push(request: Request):
+    """Google Cloud Pub/Sub push target for real-time Gmail notifications (PS's
+    "alerts before user interaction" ask, beyond the analyst-upload workflow).
+
+    Authenticated entirely by Pub/Sub's own signed OIDC bearer token -- not the
+    X-Requested-With app header or peer rate limiter (see boundary() above),
+    since Google's push infrastructure can't send either and isn't a per-analyst
+    browser session. GMAIL_PUSH_AUDIENCE must exactly match the push subscription's
+    configured endpoint URL, and the token's verified email claim must match
+    GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL -- the service account YOU configure as the
+    push subscription's own auth identity (not gmail-api-push@system.gserviceaccount.com,
+    which is a different identity entirely: that one is what Gmail's backend uses
+    to *publish* to the topic, granted via `gcloud pubsub topics
+    add-iam-policy-binding`, unrelated to who signs the *delivery* request that
+    actually arrives here).
+    """
+    from starlette.concurrency import run_in_threadpool
+    import gmail_integration
+    audience = os.getenv('GMAIL_PUSH_AUDIENCE')
+    expected_subject = os.getenv('GMAIL_PUSH_SERVICE_ACCOUNT_EMAIL')
+    if not audience or not expected_subject or not gmail_integration.configured():
+        raise HTTPException(503, 'Gmail push is not configured')
+    auth = request.headers.get('authorization', '')
+    if not auth.startswith('Bearer '):
+        raise HTTPException(401, 'Missing bearer token')
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+        claims = google_id_token.verify_oauth2_token(auth[len('Bearer '):], google_requests.Request(), audience=audience)
+        if claims.get('email') != expected_subject or not claims.get('email_verified'):
+            raise ValueError('Unexpected token subject')
+    except Exception:
+        raise HTTPException(401, 'Invalid push authentication')
+    try:
+        envelope = await request.json()
+        data = json.loads(gmail_integration.b64decode(envelope['message']['data']))
+        history_id = data['historyId']
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(400, 'Malformed Pub/Sub push envelope')
+    request.state.sid = gmail_integration.session_sid()
+    message_ids = await run_in_threadpool(gmail_integration.diff_new_message_ids, history_id)
+    processed = []
+    for mid in message_ids:
+        try:
+            raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
+            processed.append(await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None))
+        except HTTPException:
+            continue  # one bad/oversized/over-quota message must not sink the rest of the batch
+    # Advance only after attempting every id this notification covers -- not before
+    # processing, so a message a batch never got to isn't wrongly marked "seen".
+    await run_in_threadpool(gmail_integration.advance_watermark, history_id)
+    return {'processed': len(processed), 'case_ids': [r['id'] for r in processed]}
 
 
 @app.post('/api/samples/{sample_id}')
