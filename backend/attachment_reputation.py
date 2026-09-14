@@ -141,7 +141,8 @@ def submit_for_sandbox(file_bytes, filename='attachment'):
     if limited: return limited
     try:
         response = requests.post(UPLOAD_URL, headers={'x-apikey': token, 'Accept': 'application/json'},
-                                  files={'file': (str(filename)[:255], bytes(file_bytes))}, timeout=(5, 30))
+                                  files={'file': (str(filename)[:255], bytes(file_bytes))}, timeout=(5, 30),
+                                  allow_redirects=False)
         if response.status_code == 429:
             delay = retry_delay(response.headers.get('Retry-After'))
             with _lock: _blocked_until = max(_blocked_until, time.monotonic() + delay)

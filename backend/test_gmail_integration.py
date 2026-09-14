@@ -4,9 +4,11 @@ import logging
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from googleapiclient.errors import HttpError
 
 import gmail_integration as gi
+import main
 import store
 from test_selection import client, HEADERS
 
@@ -242,6 +244,25 @@ def test_claim_processed_only_the_first_caller_succeeds():
     assert gi.claim_processed('msg2') is True  # a different id is unaffected
 
 
+def test_unclaim_processed_allows_a_fresh_claim():
+    assert gi.claim_processed('msg1') is True
+    gi.unclaim_processed('msg1')
+    assert gi.claim_processed('msg1') is True  # not permanently "done" anymore
+
+
+def test_unclaim_processed_is_a_noop_for_an_unclaimed_id():
+    gi.unclaim_processed('never-claimed')  # must not raise
+    assert gi.claim_processed('never-claimed') is True
+
+
+def test_unclaim_processed_does_not_affect_other_claimed_ids():
+    gi.claim_processed('keep-me')
+    gi.claim_processed('drop-me')
+    gi.unclaim_processed('drop-me')
+    assert gi.claim_processed('keep-me') is False  # still claimed
+    assert gi.claim_processed('drop-me') is True  # claimable again
+
+
 def test_claim_processed_is_bounded_fifo(monkeypatch):
     monkeypatch.setattr(gi, '_MAX_PROCESSED_IDS', 3)
     for mid in ['a', 'b', 'c', 'd']:
@@ -378,10 +399,13 @@ def test_push_endpoint_logs_successful_notification_steps(client, monkeypatch, t
 
 
 def test_push_endpoint_advances_watermark_even_when_a_message_fails_to_store(client, monkeypatch, tmp_path):
-    # A per-message processing failure (e.g. session case-cap, rate limit) must not
-    # crash the whole notification or leave the watermark stuck -- but this does mean
-    # that specific message won't be retried, a known, documented tradeoff (see
-    # diff_new_message_ids's docstring) rather than building a full dead-letter queue.
+    # A per-message processing failure (e.g. a malformed/oversized email --
+    # a non-429 HTTPException, so not retried) must not crash the whole
+    # notification or leave the watermark stuck. The watermark still moving
+    # past this notification's historyId means a message that fails for a
+    # genuinely non-retryable reason still won't be picked up by a LATER,
+    # separate notification -- a known, documented tradeoff (see
+    # unclaim_processed()'s docstring) rather than a full dead-letter queue.
     monkeypatch.setattr(store, 'DATA', tmp_path)
     _configure_push_env(monkeypatch)
     _mock_valid_token(monkeypatch)
@@ -397,6 +421,51 @@ def test_push_endpoint_advances_watermark_even_when_a_message_fails_to_store(cli
     assert response.status_code == 200
     assert response.json()['processed'] == 0
     assert advanced == ['43']
+    assert gi.claim_processed('msg1')  # unclaimed on failure -- a fresh claim succeeds
+
+
+def test_push_endpoint_retries_busy_analysis_slot_then_succeeds(client, monkeypatch, tmp_path):
+    # Regression for the confirmed "permanently lost message" bug: claim_processed()
+    # marks a message done BEFORE fetch/execute, so a transient 429 (this instance's
+    # own analysis-slot semaphore or per-session rate limit momentarily saturated --
+    # nothing wrong with the email itself) used to permanently drop it with no retry.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    raw = b'From: a@b.com\r\nTo: c@d.com\r\nSubject: retried mail\r\n\r\nbody text'
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg-retry'])
+    monkeypatch.setattr(gi, 'fetch_raw', lambda message_id: raw)
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    attempts = {'n': 0}
+    real_execute = main.execute
+    def flaky_execute(*args, **kwargs):
+        attempts['n'] += 1
+        if attempts['n'] < 3:
+            raise HTTPException(429, 'Analysis workers busy. Please retry shortly.')
+        return real_execute(*args, **kwargs)
+    monkeypatch.setattr(main, 'execute', flaky_execute)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '99'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 1
+    assert attempts['n'] == 3
+
+
+def test_push_endpoint_unclaims_after_exhausting_retries_on_persistent_429(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg-stuck'])
+    monkeypatch.setattr(gi, 'fetch_raw', lambda message_id: b'From: a@b.com\r\nTo: c@d.com\r\nSubject: s\r\n\r\nb')
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    def always_busy(*args, **kwargs):
+        raise HTTPException(429, 'Analysis workers busy. Please retry shortly.')
+    monkeypatch.setattr(main, 'execute', always_busy)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '100'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 0
+    assert gi.claim_processed('msg-stuck')  # unclaimed -- a fresh claim succeeds, not "already claimed"
 
 
 def test_push_endpoint_rejects_malformed_envelope(client, monkeypatch):

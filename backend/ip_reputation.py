@@ -33,7 +33,8 @@ def lookup(ip):
     result = {'ip': ip, 'source': 'AbuseIPDB', 'observed_at': now, 'cached': False, 'status': 'unavailable'}
     try:
         with requests.get(SOURCE, headers={'Key': token, 'Accept': 'application/json'},
-                          params={'ipAddress': ip, 'maxAgeInDays': 90}, timeout=(3, 7), stream=True) as response:
+                          params={'ipAddress': ip, 'maxAgeInDays': 90}, timeout=(3, 7), stream=True,
+                          allow_redirects=False) as response:
             if response.status_code == 429:
                 result.update(status='rate_limited', detail='AbuseIPDB quota exceeded; retry later.')
             elif response.status_code == 401:

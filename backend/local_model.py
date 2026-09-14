@@ -18,12 +18,32 @@ MODEL_ID = os.getenv('MODEL_ID', 'ealvaradob/bert-finetuned-phishing')
 MAX_LENGTH = int(os.getenv('MODEL_MAX_LENGTH', '256'))
 lock = threading.Lock()
 model = tokenizer = None
+phishing_index = None
 status = 'loading'
 detail = 'Loading locally cached model'
 
 
+def _phishing_label_index(id2label):
+    """Find the single label that means "phishing", not merely one
+    containing that substring. A common negative-class naming convention --
+    id2label={0:'not_phishing', 1:'phishing'} -- means 'not_phishing' also
+    contains "phishing" as a substring; naive first-match substring search
+    would silently pick the LEGITIMATE class as "phishing", inverting every
+    verdict. Raises ValueError on anything ambiguous rather than guessing,
+    matching this module's own "never silently substitute" principle."""
+    labels = {int(k): str(v).lower().replace('-', '_') for k, v in id2label.items()}
+    exact = [i for i, name in labels.items() if name in ('phishing', 'phish')]
+    if len(exact) == 1:
+        return exact[0]
+    negated = ('not_phish', 'non_phish', 'no_phish', 'nonphish')
+    candidates = [i for i, name in labels.items() if 'phish' in name and not any(n in name for n in negated)]
+    if len(candidates) == 1:
+        return candidates[0]
+    raise ValueError(f'Could not unambiguously identify the phishing class from label mapping: {id2label}')
+
+
 def load():
-    global model, tokenizer, status, detail
+    global model, tokenizer, phishing_index, status, detail
     if os.getenv('DISABLE_ML') == '1':
         status, detail = 'unavailable', 'Model disabled by configuration'
         return
@@ -33,10 +53,13 @@ def load():
         torch.set_num_threads(min(4, os.cpu_count() or 1))
         tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, local_files_only=True, trust_remote_code=False)
         candidate = AutoModelForSequenceClassification.from_pretrained(MODEL_ID, local_files_only=True, low_cpu_mem_usage=True)
-        labels = {str(v).lower(): int(k) for k, v in candidate.config.id2label.items()}
-        if not any('phish' in label for label in labels):
-            raise ValueError('Model label mapping must identify phishing explicitly')
+        # Resolved once here (not per-classify() call): also means a bad/
+        # ambiguous label mapping fails loudly at load time via the except
+        # below (status='unavailable') instead of silently guessing wrong,
+        # or re-deriving the same fragile lookup on every request.
+        resolved_phishing_index = _phishing_label_index(candidate.config.id2label)
         model = candidate.eval()
+        phishing_index = resolved_phishing_index
         status = 'ready'
         if MODEL_ID == 'ealvaradob/bert-finetuned-phishing':
             detail = 'Local CPU inference; pretrained model, not team-retrained'
@@ -71,7 +94,6 @@ def classify(text):
         inputs = tokenizer(text, return_tensors='pt', truncation=True, max_length=MAX_LENGTH)
         scores = torch.softmax(model(**inputs).logits, dim=-1)[0]
         index = int(scores.argmax())
-        phishing_index = next(int(k) for k, v in model.config.id2label.items() if 'phish' in v.lower())
         return {'status': 'ready', 'model': MODEL_ID, 'label': model.config.id2label[index],
                 'confidence': round(float(scores[index]) * 100, 1),
                 'phishing_probability': round(float(scores[phishing_index]) * 100, 1),

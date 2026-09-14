@@ -39,36 +39,55 @@ def base(value):
 class HTMLText(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.text, self.links, self.current = [], [], None
+        # A stack, not a single slot: html.parser is a permissive tokenizer,
+        # not a real HTML5 tree constructor, so it does NOT auto-close an <a>
+        # when another <a> starts inside it (real browsers do). A single
+        # self.current slot meant a nested <a href="evil"><a href="benign">
+        # click</a></a> silently dropped the outer href the moment the inner
+        # </a> fired -- a concrete way to hide a malicious link from every
+        # downstream check. Each open <a> now gets its own frame; closing one
+        # always records it, however deep it was nested.
+        self.text, self.links, self.stack = [], [], []
         self.hidden = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in ('script', 'style'):
             self.hidden += 1
         if tag == 'a':
-            self.current = [dict(attrs).get('href', ''), '']
+            self.stack.append([dict(attrs).get('href', ''), ''])
 
     def handle_data(self, data):
         if not self.hidden:
             self.text.append(data)
-            if self.current:
-                self.current[1] += data
+            for frame in self.stack:
+                frame[1] += data
 
     def handle_endtag(self, tag):
         if tag in ('script', 'style'):
             self.hidden = max(0, self.hidden - 1)
-        if tag == 'a' and self.current:
-            self.links.append(self.current)
-            self.current = None
+        if tag == 'a' and self.stack:
+            self.links.append(self.stack.pop())
 
 
 def scan_url(value, displayed=''):
     try:
         parts = urlsplit(value)
-        host = (parts.hostname or '').lower().encode('idna').decode('ascii')
+        raw_host = (parts.hostname or '').lower()
+        # A host that fails IDNA encoding (e.g. an empty label like
+        # "example..com") is itself a red flag, not a reason to drop the URL
+        # from analysis entirely -- a genuinely missing host (raw_host=='')
+        # still short-circuits below via `not host`, but a malformed one now
+        # gets scored and flagged instead of silently disappearing.
+        try:
+            host = raw_host.encode('idna').decode('ascii')
+            malformed_host = False
+        except UnicodeError:
+            host = raw_host
+            malformed_host = True
         if parts.scheme.lower() not in ('http', 'https') or not host:
             return None
         reasons = general_detection.url_signals(value)
+        if malformed_host: reasons.append('Malformed or invalid host encoding')
         if parts.scheme.lower() == 'http': reasons.append('Unencrypted HTTP')
         try:
             ipaddress.ip_address(host)

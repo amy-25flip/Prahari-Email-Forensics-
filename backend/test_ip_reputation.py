@@ -71,3 +71,19 @@ def test_cache_hit_skips_network(monkeypatch):
     assert calls['n'] == 1
     assert first['status'] == 'available' and not first['cached']
     assert second['cached']
+
+
+def test_lookup_disables_redirect_following(monkeypatch):
+    # requests follows redirects by default and does NOT strip custom
+    # headers like 'Key' on a cross-host redirect (only strips the standard
+    # Authorization header) -- without allow_redirects=False, a compromised
+    # DNS/CDN/proxy on the AbuseIPDB endpoint could leak the API key to a
+    # redirect target, unlike every other keyed call in this codebase which
+    # already sets this.
+    captured = {}
+    def fake_get(*a, **k):
+        captured.update(k)
+        return FakeResponse(200, {'data': {'usageType': '', 'abuseConfidenceScore': 0, 'isTor': False, 'isp': '', 'domain': '', 'totalReports': 0}})
+    monkeypatch.setattr(ir.requests, 'get', fake_get)
+    ir.lookup('8.8.8.8')
+    assert captured.get('allow_redirects') is False

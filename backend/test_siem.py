@@ -25,6 +25,17 @@ def test_minimal_payload(report):
     assert not {'body','sender','subject','urls','headers','recipient'} & payload.keys()
     assert siem.event(report)['event_id'] == payload['event_id']
 
+def test_deliver_raises_valueerror_not_keyerror_on_malformed_report(monkeypatch):
+    # event() indexes report fields directly (report['id'], report['authentication']
+    # entries, each finding's ['title']) with no .get() fallback, and used to sit
+    # outside deliver()'s own try/except -- a malformed/reshaped report raised an
+    # uncaught KeyError, which main.py's send_siem() (catching only ValueError)
+    # would not handle, surfacing as an unhandled 500 instead of a clean HTTP error.
+    monkeypatch.setenv('SIEM_MODE', 'wazuh')
+    monkeypatch.setenv('WAZUH_LOG_PATH', 'unused.jsonl')
+    with pytest.raises(ValueError):
+        siem.deliver({'id': 'case-1'})
+
 def test_wazuh_log_and_integrity(client, report, monkeypatch, tmp_path):
     path = tmp_path/'siem.jsonl'
     monkeypatch.setenv('SIEM_MODE','wazuh')

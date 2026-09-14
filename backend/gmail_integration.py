@@ -209,6 +209,36 @@ def claim_processed(message_id):
         return True
 
 
+def unclaim_processed(message_id):
+    """Undo a claim_processed() claim.
+
+    claim_processed() marks a message done BEFORE it's fetched/analyzed, so a
+    transient failure after claiming (this instance's own analysis-slot
+    semaphore full, its own per-session rate limit, a momentary Gmail API
+    error) used to leave that id permanently in processed_message_ids even
+    though nothing was ever actually stored for it -- a real email silently
+    and permanently lost, confirmed live. Call this when processing fails so
+    a later attempt (within the same push notification's retry loop, or a
+    message that gets reported again in a future notification) isn't
+    rejected as "already claimed" for work that never happened.
+
+    Known remaining limitation: advance_watermark() still moves the
+    watermark past this notification's historyId regardless of per-message
+    outcome (so a mid-batch crash can't leave it stuck ahead of unattempted
+    work) -- so unclaiming alone does not guarantee a LATER, separate
+    notification will ever re-report this exact message once the watermark
+    has passed it. This closes the same-request retry window, not every
+    possible loss window.
+    """
+    with _state_lock:
+        state = _read_state()
+        ids = state.get('processed_message_ids', [])
+        if message_id in ids:
+            ids.remove(message_id)
+            state['processed_message_ids'] = ids
+            _write_state(state)
+
+
 def advance_watermark(notified_history_id):
     """Commit the watermark. Call this once per notification after attempting to
     process every id diff_new_message_ids() returned -- not before, and not per

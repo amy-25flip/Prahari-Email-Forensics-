@@ -61,7 +61,16 @@ def cef(report):
 def deliver(report):
     mode, target, token = config()
     if mode == 'disabled': raise ValueError('SIEM delivery is not configured')
-    payload = event(report)
+    try:
+        payload = event(report)
+    except KeyError as exc:
+        # event() indexes report fields directly with no .get() fallback --
+        # a report missing/reshaped in one of them must not surface as an
+        # unhandled 500. Re-raised as ValueError, the one exception type
+        # every caller (main.py's send_siem) already catches and turns into
+        # a clean HTTP error, matching every other failure path in this
+        # module returning a status dict rather than propagating.
+        raise ValueError(f'Report is missing a field SIEM delivery requires: {exc}') from exc
     receipt = {'event_id': payload['event_id'], 'mode': mode, 'at': time.time()}
     if mode == 'wazuh':
         try:

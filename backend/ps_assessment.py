@@ -33,7 +33,14 @@ def inspect(raw, report):
             date=parsedate_to_datetime(str(value).rsplit(';',1)[1])
             dates.append(date.timestamp() if date.tzinfo else None)
         except (ValueError,TypeError,IndexError,OverflowError): dates.append(None)
-    if any(a is not None and b is not None and b<a-300 for a,b in zip(dates,dates[1:])):
+    # Compare adjacent pairs of the KNOWN dates only, not adjacent pairs of the
+    # raw hop list -- one unparseable/missing Received date used to create a
+    # blind spot: zip(dates, dates[1:]) skipped both pairs touching that None,
+    # so a genuine reversal spanning the hop before it to the hop after it was
+    # never compared at all. Dropping the Nones first makes the two real
+    # timestamps on either side adjacent again.
+    known=[d for d in dates if d is not None]
+    if any(b<a-300 for a,b in zip(known,known[1:])):
         add('header','Relay timestamp reversal','Reported delivery order reverses by over five minutes. Clock skew or forged headers are possible; neither is established.')
     display,address=parseaddr(str(msg.get('From','')))
     claimed=re.search(r'[\w.+-]+@[A-Za-z0-9.-]+',display)

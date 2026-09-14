@@ -92,3 +92,21 @@ def test_cache_hit_skips_network(monkeypatch):
     second = ar.lookup_hash(HASH_A)
     assert calls['n'] == 1
     assert second['cached']
+
+
+def test_submit_for_sandbox_disables_redirect_following(monkeypatch):
+    # The file-upload POST sends 'x-apikey' but, like ip_reputation.py's
+    # AbuseIPDB call, used to omit allow_redirects=False -- unlike every
+    # other VirusTotal call in this same file, which already sets it.
+    captured = {}
+    class Response:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {'data': {'id': 'analysis-1'}}
+    def fake_post(*a, **k):
+        captured.update(k)
+        return Response()
+    monkeypatch.setattr(ar.requests, 'post', fake_post)
+    result = ar.submit_for_sandbox(b'file content', 'test.bin')
+    assert result['status'] == 'submitted'
+    assert captured.get('allow_redirects') is False

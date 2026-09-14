@@ -91,3 +91,34 @@ def test_geo_validation_and_cache(monkeypatch, payload, status):
     assert geo.locate('8.8.8.8')['status'] == status
     assert geo.locate('8.8.8.8')['cached']
     assert len(calls) == 1
+
+
+def test_parse_policy_tolerates_whitespace_around_leading_tag():
+    # pairs[0] used to be compared unstripped while every other tag was
+    # stripped -- "v = DMARC1" (spaces a real admin/registrar UI can easily
+    # introduce) was accepted by record()'s own regex pre-filter but then
+    # rejected by parse_policy() itself, reporting a real p=reject domain as
+    # DMARC "unknown".
+    tags = auth.parse_policy('v = DMARC1; p=reject')
+    assert tags is not None
+    assert tags['p'] == 'reject'
+
+
+def test_parse_policy_rejects_record_missing_mandatory_p_tag():
+    # RFC 7489: 'p' is mandatory. A record missing it entirely must not be
+    # "recovered" into an accepted p=none monitoring policy just because rua
+    # happens to be present -- that conflates "no policy at all" with "policy
+    # present but using an unsupported value", which used to fall into the
+    # same too-charitable recovery branch.
+    assert auth.parse_policy('v=DMARC1; rua=mailto:a@b.com') is None
+
+
+def test_parse_policy_still_recovers_invalid_p_value_when_rua_present():
+    # The recovery path itself is legitimate for a genuinely-present-but-
+    # unsupported p value, as long as the record still names a p tag.
+    tags = auth.parse_policy('v=DMARC1; p=bogus; rua=mailto:a@b.com')
+    assert tags is not None and tags['p'] == 'none'
+
+
+def test_parse_policy_rejects_invalid_p_value_without_rua():
+    assert auth.parse_policy('v=DMARC1; p=bogus') is None

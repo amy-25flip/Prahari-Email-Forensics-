@@ -19,11 +19,23 @@ def parse_policy(record):
     pairs = [p.strip().split('=', 1) for p in record.split(';') if p.strip()]
     if not pairs or any(len(p) != 2 for p in pairs): return None
     tags = {k.strip(): v.strip() for k, v in pairs}
-    if pairs[0] != ['v', 'DMARC1'] or len(tags) != len(pairs): return None
+    # pairs[0] itself is unstripped around the '=' (only the whole segment
+    # was stripped above) -- comparing it directly rejected a record like
+    # "v = DMARC1; p=reject" (extra spacing, which real registrar/admin UIs
+    # commonly insert) even though record()'s own regex pre-filter already
+    # matched it as DMARC1. Strip both sides before comparing.
+    first_key, first_value = (x.strip() for x in pairs[0])
+    if first_key != 'v' or first_value != 'DMARC1' or len(tags) != len(pairs): return None
+    # RFC 7489: 'p' is a mandatory tag. A record missing it entirely is
+    # simply invalid -- it must not fall into the same recovery path as a
+    # record that HAS a 'p' but the value is malformed/unsupported, or a
+    # DMARC record with no policy at all silently becomes an accepted
+    # "p=none" monitoring policy as long as rua happens to be present.
+    if 'p' not in tags: return None
     for tag in ('adkim', 'aspf'):
         if tags.get(tag, 'r') not in ('r', 's'): return None
     if tags.get('psd', 'u') not in ('y', 'n', 'u'): return None
-    if any(tags.get(t, tags.get('p')) not in ('none', 'quarantine', 'reject') for t in ('p', 'sp', 'np')):
+    if any(tags.get(t, tags['p']) not in ('none', 'quarantine', 'reject') for t in ('p', 'sp', 'np')):
         if not any(re.fullmatch(r'mailto:[^\s@,]+@[^\s@,]+', uri.strip()) for uri in tags.get('rua', '').split(',')): return None
         tags['p'] = 'none'
         tags.pop('sp', None)

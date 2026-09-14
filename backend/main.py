@@ -38,6 +38,12 @@ if not gmail_push_logger.handlers:
 # Own handler is self-contained; don't also emit through root (which may one
 # day gain a handler of its own) and print every line twice.
 gmail_push_logger.propagate = False
+# Bounded retry for a single push message hitting our OWN transient capacity
+# (429 from the shared analysis-slot semaphore or the gmail-push session's
+# rate limit) -- not a general-purpose retry policy, and not applied to a
+# malformed/oversized email, which would just fail identically every time.
+_PUSH_MAX_ATTEMPTS = 3
+_PUSH_RETRY_DELAY_SECONDS = 2
 
 
 @asynccontextmanager
@@ -76,7 +82,13 @@ async def boundary(request: Request, call_next):
     push = request.url.path == '/api/gmail/push'
     if request.method in ('POST', 'DELETE') and not push and request.headers.get('x-requested-with') != 'Email-Threat-Detection':
         return JSONResponse({'detail': 'Missing application request header'}, status_code=403)
-    if request.method in ('POST', 'DELETE') and not push:
+    # Previously only POST/DELETE were peer-rate-limited here, but every GET
+    # to an /api/* route also reaches store.session() below and creates a
+    # brand-new session (consuming a MAX_SESSIONS slot) whenever no cookie is
+    # sent -- an unauthenticated GET flood could exhaust session capacity and
+    # 503 every real user with zero POSTs involved. Gate every real API route
+    # (not health/ready, not push, not static asset serving) uniformly.
+    if not push and request.url.path.startswith('/api/') and request.url.path not in ('/api/health', '/api/ready'):
         peer = request.client.host if request.client else 'unknown'
         if not peer_limiter.allow(peer):
             return JSONResponse({'detail': 'Peer request limit reached. Retry in one minute.'}, status_code=429, headers={'Retry-After':'60'})
@@ -337,28 +349,55 @@ async def gmail_push(request: Request):
             skipped += 1
             gmail_push_logger.info('Gmail push message skipped: historyId=%s messageId=%s reason=already_claimed', history_id, mid)
             continue
-        try:
-            gmail_push_logger.info('Gmail push message claimed: historyId=%s messageId=%s', history_id, mid)
-            raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
-            gmail_push_logger.info('Gmail push message fetched: historyId=%s messageId=%s bytes=%d', history_id, mid, len(raw))
-            result = await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None)
-            processed.append(result)
-            gmail_push_logger.info(
-                'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
-                history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
-        except HTTPException as exc:
+        gmail_push_logger.info('Gmail push message claimed: historyId=%s messageId=%s', history_id, mid)
+        stored, last_status, last_detail = False, None, None
+        for attempt in range(1, _PUSH_MAX_ATTEMPTS + 1):
+            try:
+                raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
+                gmail_push_logger.info('Gmail push message fetched: historyId=%s messageId=%s bytes=%d', history_id, mid, len(raw))
+                result = await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None)
+                processed.append(result)
+                gmail_push_logger.info(
+                    'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
+                    history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
+                stored = True
+                break
+            except HTTPException as exc:
+                last_status, last_detail = exc.status_code, exc.detail
+                # 429 here means OUR OWN transient capacity (the shared
+                # 2-slot analysis semaphore, or the fixed gmail-push
+                # session's own per-minute cap) was momentarily exhausted --
+                # nothing wrong with this email. Confirmed live: concurrent
+                # web-UI testing or a burst of pushes could saturate these
+                # and permanently drop an otherwise-good message. A 4xx that
+                # isn't 429 (malformed/oversized email) will never succeed
+                # on retry, so don't waste attempts on it.
+                if exc.status_code == 429 and attempt < _PUSH_MAX_ATTEMPTS:
+                    gmail_push_logger.info(
+                        'Gmail push message busy, retrying: historyId=%s messageId=%s attempt=%d status=%s',
+                        history_id, mid, attempt, exc.status_code)
+                    await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
+                    continue
+                gmail_push_logger.warning(
+                    'Gmail push message failed with HTTPException: historyId=%s messageId=%s status=%s detail=%s',
+                    history_id, mid, exc.status_code, exc.detail)
+                break
+            except HttpError as exc:
+                last_status = getattr(getattr(exc, 'resp', None), 'status', None)
+                last_detail = str(exc)
+                gmail_push_logger.warning(
+                    'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
+                    history_id, mid, last_status, exc)
+                break  # one bad/oversized/over-quota/Gmail-API-error message must not sink the rest of the batch
+        if not stored:
             failed += 1
+            # Un-claim so this message isn't permanently marked "done" for
+            # work that never actually happened -- see unclaim_processed()'s
+            # docstring for the retry window this does and doesn't cover.
+            await run_in_threadpool(gmail_integration.unclaim_processed, mid)
             gmail_push_logger.warning(
-                'Gmail push message failed with HTTPException: historyId=%s messageId=%s status=%s detail=%s',
-                history_id, mid, exc.status_code, exc.detail)
-            continue  # one bad/oversized/over-quota app-level message must not sink the rest of the batch
-        except HttpError as exc:
-            failed += 1
-            status = getattr(getattr(exc, 'resp', None), 'status', None)
-            gmail_push_logger.warning(
-                'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
-                history_id, mid, status, exc)
-            continue  # one bad/oversized/over-quota/Gmail-API-error message must not sink the rest of the batch
+                'Gmail push message failed after all attempts, unclaimed (not guaranteed to be retried once the watermark advances): historyId=%s messageId=%s status=%s detail=%s',
+                history_id, mid, last_status, last_detail)
     # Advance only after attempting every id this notification covers -- not before
     # processing, so a message a batch never got to isn't wrongly marked "seen".
     try:

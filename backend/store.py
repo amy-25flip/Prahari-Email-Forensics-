@@ -109,6 +109,15 @@ def delete(sid, cid):
 def verify(sid):
     previous, count, created, deleted = '0' * 64, 0, {}, set()
     with connect() as db:
+        # Without an explicit transaction, these two SELECTs each get their
+        # own implicit read snapshot -- a case+event written by a concurrent
+        # request for this same session (e.g. a second browser tab) between
+        # them could make `found` and `created` legitimately diverge with
+        # nothing actually corrupted, producing a false "tamper detected".
+        # BEGIN (deferred; no write follows) pins one consistent snapshot for
+        # the whole function, the same way save/delete/append use BEGIN
+        # IMMEDIATE to make their own writes atomic.
+        db.execute('BEGIN')
         for row in db.execute('SELECT * FROM events WHERE session=? ORDER BY seq', (sid,)):
             expected = hashlib.sha256((previous + row['payload']).encode()).hexdigest()
             if row['previous'] != previous or row['hash'] != expected: return {'valid': False, 'detail': 'Audit chain mismatch', 'checked': count}
