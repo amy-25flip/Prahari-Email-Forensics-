@@ -15,10 +15,10 @@
 .attribution-score.good span{color:#b0e76b;background:#a3e6350c;border:1px solid #a3e63530}
 .attribution-score.warn span{color:#e6b16f;background:#f973160a;border:1px solid #f9731633}
 .attribution-score.danger span{color:#f68181;background:#ef44440d;border:1px solid #ef444433}
-.attribution-factors{width:100%;border-collapse:collapse;margin-top:10px}
-.attribution-factors td{padding:8px 10px;border-bottom:1px solid #292d36;vertical-align:top}
+.attribution-factors{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+.attribution-factors td{padding:7px 10px;border-bottom:1px solid #22252e;vertical-align:top;line-height:1.5}
 .attribution-factors td:first-child{width:44px;font-weight:600;text-align:center}
-.attribution-factors td p{margin:2px 0 0;color:#aeb8c7}
+.attribution-factors td span{color:#7c8797;margin-left:4px}
 .attribution-factors tr.applied-positive td:first-child{color:#b0e76b}
 .attribution-factors tr.applied-negative td:first-child{color:#f68181}
 .attribution-factors tr.not-applied{opacity:.45}
