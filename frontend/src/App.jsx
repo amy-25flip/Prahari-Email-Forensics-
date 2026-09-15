@@ -16,6 +16,7 @@ import PSAssessment from './PSAssessment'
 import AttributionConfidence from './AttributionConfidence'
 import SandboxSubmit from './SandboxSubmit'
 import ReviewDecision from './ReviewDecision'
+import PromptInjection from './PromptInjection'
 import './ps-features.css'
 
 const api = axios.create({ baseURL: '/api', headers: { 'X-Requested-With': 'Email-Threat-Detection' }, timeout: 90000 })
@@ -147,6 +148,7 @@ export default function App() {
             <SiemDelivery key={result.id} caseId={result.id}/>
             <div className="view-tabs">{[['evidence', 'Evidence'], ['relay', 'Relay path'], ['urls', `URLs (${result.urls.length})`], ['source', 'Source & attachments']].map(([key, name]) => <button className={tab === key ? 'selected' : ''} key={key} onClick={() => setTab(key)}>{name}</button>)}</div>
             {tab === 'evidence' && <Conflicts result={result}/>}
+            {tab === 'evidence' && <PromptInjection value={result.prompt_injection}/>}
             {tab === 'evidence' && <><AttributionConfidence value={result.assessment?.attribution}/><PSAssessment value={result.assessment}/><ReviewDecision key={result.id} caseId={result.id}/></>}
             {tab === 'evidence' && <div className="evidence-layout"><Section title="Detection evidence" meta={<Badge>{result.findings.length} findings</Badge>}>{result.findings.length ? result.findings.map((f, i) => <div className="finding" key={i}><AlertTriangle size={17}/><div><strong>{f.title}</strong><p>{f.detail}</p><small>{f.group}</small></div><span className="points">+{f.points}</span></div>) : <Empty icon={ShieldCheck}>No configured detection rules triggered. This is not proof that the email is safe.</Empty>}<div className="group-caps">Group totals after caps: {Object.entries(result.groups).map(([key, value]) => `${key} ${value}`).join(' · ')}</div></Section><div><Authentication values={result.authentication}/><DomainIntelligence value={result.domain_intelligence}/><Section title="Evidence integrity"><CheckpointTools/><div className="hash mono">{result.sha256}</div><button className="secondary" onClick={verify}><Fingerprint size={16}/> Verify stored evidence</button>{verification && <div className={`verification ${verification.valid ? 'good' : 'danger'}`}><strong>{verification.valid ? 'Integrity checks passed' : 'Integrity check failed'}</strong><p>{verification.detail}</p></div>}</Section></div></div>}
             {tab === 'relay' && <><RelayMap result={result}/><Section title="Header-reported relay sequence">{result.hops.length ? result.hops.map(h => <div className="hop" key={h.index}><span>{String(h.index).padStart(2, '0')}</span><div><strong className="mono">{h.ips.join(' / ') || 'No IP in this header'}</strong><p className="mono">{h.raw}</p><Badge color="warn">{h.trust}</Badge></div></div>) : <Empty icon={Globe2}>No Received headers supplied.</Empty>}</Section></>}

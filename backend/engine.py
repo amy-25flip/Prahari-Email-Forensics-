@@ -12,6 +12,7 @@ import local_model as ml
 import reputation
 import domain_intelligence
 import general_detection
+import prompt_injection
 import routing
 from authentication import authenticate
 from geolocation import enrich as enrich_locations
@@ -136,7 +137,7 @@ def analyze(raw, source='upload', live=False, context=None):
     msg = BytesParser(policy=policy.default).parsebytes(raw)
     if not msg.get('From') or not msg.get('Subject'):
         raise ValueError('Include at least From and Subject headers in a raw email.')
-    attachments, texts, html_links = [], [], []
+    attachments, texts, html_links, html_sources = [], [], [], []
     for i, part in enumerate(msg.walk()):
         if i > 100: raise ValueError('Email has too many MIME parts (maximum 100).')
         if part.is_multipart(): continue
@@ -154,6 +155,7 @@ def analyze(raw, source='upload', live=False, context=None):
                 parser.feed(decoded)
                 texts.append(' '.join(parser.text))
                 html_links.extend(parser.links)
+                html_sources.append(decoded)
             else: texts.append(decoded)
     body = '\n'.join(texts)[:100000]
     candidates = html_links + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body, re.I)]
@@ -190,10 +192,31 @@ def analyze(raw, source='upload', live=False, context=None):
                            ('Verification avoidance', r'(do not (call|contact)|bypass.{0,25}approval|keep this confidential)')]:
         match = re.search(pattern, body, re.I | re.S)
         if match: flag('language', title, match[0], 10)
-    prediction = ml.classify(str(msg.get('Subject')) + '\n' + body)
+    classifier_text = str(msg.get('Subject')) + '\n' + body
+    prediction = ml.classify(classifier_text)
     if high_model_signal(prediction):
         flag('language', 'High model phishing probability', 'Independent model evidence; uncalibrated and requires analyst review.', 30)
-    caps = {'identity': 30, 'authentication': 20, 'links': 25, 'language': 35, 'attachments': 15, 'reputation': 60}
+    # instruction_pattern is matched directly against classifier_text -- the
+    # SAME string just handed to ml.classify() -- so that indicator type is
+    # proven to be content the model actually sees. hidden_instruction (an
+    # instruction pattern found specifically inside CSS-hidden content) and
+    # hidden_comment_raw_html_only (found only in an HTML comment, which
+    # HTMLText never extracts) are scored lower/differently below precisely
+    # because they don't carry that same guarantee -- see prompt_injection.py.
+    manipulation = prompt_injection.scan(classifier_text, html_sources)
+    # hidden_content_present is deliberately 0: CSS-hidden text with no
+    # instruction pattern in it (preheader text, ESP boilerplate) is normal
+    # in legitimate marketing/transactional email and must never move the
+    # score on its own -- it stays visible in the dedicated panel via
+    # result['prompt_injection'] without being added to scored findings.
+    manipulation_points = {'instruction_pattern': 25, 'hidden_instruction': 35,
+                            'hidden_comment_raw_html_only': 15, 'hidden_content_present': 0,
+                            'zero_width_characters': 15}
+    for indicator in manipulation['indicators']:
+        points = manipulation_points[indicator['type']]
+        if points > 0:
+            flag('manipulation', indicator['description'], indicator['excerpt'] or manipulation['detail'], points)
+    caps = {'identity': 30, 'authentication': 20, 'links': 25, 'language': 35, 'attachments': 15, 'reputation': 60, 'manipulation': 40}
     groups = {group: min(cap, sum(f['points'] for f in findings if f['group'] == group)) for group, cap in caps.items()}
     score = min(100, sum(groups.values()))
     hops = []
@@ -224,6 +247,7 @@ def analyze(raw, source='upload', live=False, context=None):
             'conflicts': detect_conflicts(findings, auth, prediction, list(urls.values())),
             'findings': findings, 'ml': prediction, 'authentication': auth, 'urls': list(urls.values()),
             'attachments': attachments, 'hops': hops, 'indicators': indicators, 'geo': geo,
+            'prompt_injection': manipulation,
             'headers': [{'name': k, 'value': str(v)[:4000]} for k, v in list(msg.items())[:100]],
             'origin': 'Unverified', 'coverage': {'completed': 4 + int(auth['dkim']['status'] in ('pass', 'fail')), 'total': 8},
             'limitations': ['Header-reported relays do not identify a human sender.',

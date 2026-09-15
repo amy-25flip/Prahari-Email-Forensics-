@@ -716,6 +716,11 @@ def export(cid: str, fmt: str, request: Request):
                 if entry.get('status') in ('available', 'no_prior_reports'):
                     line(f"Attachment reputation {entry['sha256'][:16]}...: {entry['detail']}")
         for finding in result['findings']: line(f"{finding['title']}: {finding['detail']}")
+        if result.get('prompt_injection', {}).get('indicators'):
+            line('AI MANIPULATION SIGNALS', 13)
+            line(result['prompt_injection']['detail'])
+            for indicator in result['prompt_injection']['indicators']:
+                line(f"{indicator['type']}: {indicator['description']}" + (f" — \"{indicator['excerpt']}\"" if indicator.get('excerpt') else ''))
         if result.get('conflicts'): line('EVIDENCE CONFLICTS', 13)
         for conflict in result.get('conflicts', []):
             line('EVIDENCE CONFLICT: ' + conflict['title'], 12)
