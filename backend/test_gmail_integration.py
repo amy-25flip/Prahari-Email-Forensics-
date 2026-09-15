@@ -191,6 +191,66 @@ def test_diff_reraises_non_404_errors(monkeypatch):
         gi.diff_new_message_ids('999')
 
 
+def test_diff_retries_empty_result_and_succeeds_once_gmail_catches_up(monkeypatch):
+    # Real, documented race condition: Gmail's Pub/Sub push can arrive before
+    # the triggering message is actually queryable via history.list() --
+    # confirmed live (a real test email was silently lost this exact way).
+    # Simulates Gmail's indexing lag resolving on the second call.
+    calls = []
+    class FlakyUsers(FakeUsers):
+        def list(self, **kwargs):
+            calls.append(1)
+            records = [] if len(calls) == 1 else [{'messagesAdded': [{'message': {'id': 'msg1'}}]}]
+            return FakeHistoryList(records)
+    class FlakyService:
+        def users(self):
+            return FlakyUsers([], {})
+    monkeypatch.setattr(gi, '_service', lambda: FlakyService())
+    slept = []
+    ids = gi.diff_new_message_ids('999', sleep=slept.append)
+    assert ids == ['msg1']
+    assert len(calls) == 2  # first attempt empty, second attempt found it
+    assert slept == [gi._DIFF_RETRY_DELAY_SECONDS]  # slept exactly once, between the two attempts
+
+
+def test_diff_gives_up_after_max_retries_on_persistent_empty_result(monkeypatch):
+    calls = []
+    class AlwaysEmptyUsers(FakeUsers):
+        def list(self, **kwargs):
+            calls.append(1)
+            return FakeHistoryList([])
+    class AlwaysEmptyService:
+        def users(self):
+            return AlwaysEmptyUsers([], {})
+    monkeypatch.setattr(gi, '_service', lambda: AlwaysEmptyService())
+    slept = []
+    ids = gi.diff_new_message_ids('999', sleep=slept.append)
+    assert ids == []
+    assert len(calls) == gi._DIFF_RETRY_ATTEMPTS
+    assert len(slept) == gi._DIFF_RETRY_ATTEMPTS - 1  # sleeps only BETWEEN attempts, not after the last one
+
+
+def test_diff_never_retries_a_404_since_it_can_never_recover(monkeypatch):
+    # Retrying a too-old startHistoryId is pointless -- the same input always
+    # 404s again -- and was a real bug in an early version of this retry
+    # logic: it wasted ~4 real seconds retrying an unrecoverable 404 both in
+    # production and in test_diff_handles_expired_history_gracefully above.
+    calls = []
+    class FailingUsers(FakeUsers):
+        def list(self, **kwargs):
+            calls.append(1)
+            resp = type('R', (), {'status': 404, 'reason': 'Not Found'})()
+            raise HttpError(resp, b'not found')
+    class FailingService:
+        def users(self):
+            return FailingUsers([], {})
+    monkeypatch.setattr(gi, '_service', lambda: FailingService())
+    slept = []
+    assert gi.diff_new_message_ids('999', sleep=slept.append) == []
+    assert len(calls) == 1  # no retry attempted
+    assert slept == []
+
+
 def test_push_endpoint_disabled_without_audience(client, monkeypatch):
     monkeypatch.delenv('GMAIL_PUSH_AUDIENCE', raising=False)
     assert client.post('/api/gmail/push', json={}).status_code == 503
@@ -538,7 +598,9 @@ def test_diff_new_message_ids_catches_label_added_records_too(monkeypatch):
 def test_diff_new_message_ids_ignores_label_added_for_other_labels(monkeypatch):
     records = [{'labelsAdded': [{'message': {'id': 'msg1'}, 'labelIds': ['IMPORTANT']}]}]
     monkeypatch.setattr(gi, '_service', lambda: FakeService(records, {}))
-    assert gi.diff_new_message_ids('999') == []
+    # Genuinely, permanently empty for this input (not a transient indexing
+    # race) -- a real sleep would just make this test slow for no reason.
+    assert gi.diff_new_message_ids('999', sleep=lambda seconds: None) == []
 
 
 def test_diff_new_message_ids_dedupes_message_reported_both_ways(monkeypatch):

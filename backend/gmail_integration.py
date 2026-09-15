@@ -6,14 +6,21 @@ module never sends, modifies, or deletes anything in the mailbox.
 """
 import base64
 import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+# Same logger main.py's push handler already configures (name lookup, not a
+# new logger) -- main.py attaches the actual handler/level, since it's
+# imported first; this module just adds retry visibility to that same trail.
+_logger = logging.getLogger('gmail_push')
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 # Render's Secret Files always land at a fixed /etc/secrets/<filename> path (you
@@ -118,22 +125,14 @@ def start_watch(topic_name):
     return response
 
 
-def diff_new_message_ids(notified_history_id):
-    """Given the historyId from a push notification, return the ids of messages
-    added to INBOX since our last known point. Does NOT advance the stored
-    watermark -- call advance_watermark() only after the caller has actually
-    attempted to fetch and process each id, so a message can't be marked "seen"
-    before anything was ever done with it (e.g. if the session's case-count cap
-    or the per-session analysis rate limit rejects it downstream).
+def _list_new_message_ids(service, start_id):
+    """One history.list() pass (with pagination).
 
-    Known limitation: if the watermark file is lost/missing entirely (rather than
-    just stale), the very next notification's own triggering message can be
-    missed, since Gmail's history API returns entries *after* the given start id
-    -- run gmail_watch_start.py (which sets an initial watermark) before the
-    first real push, not after, to avoid this in normal operation."""
-    service = _service()
-    with _state_lock:
-        start_id = _read_state().get('last_history_id') or notified_history_id
+    Returns (message_ids, recoverable): recoverable=False on a 404 (start_id
+    too old for Gmail to still have history for) -- retrying that can never
+    succeed since the same start_id always 404s again, unlike a genuinely
+    empty result, which can be a real Gmail indexing-lag race worth retrying
+    (see diff_new_message_ids)."""
     message_ids = []
     try:
         page_token = None
@@ -162,9 +161,55 @@ def diff_new_message_ids(notified_history_id):
         # startHistoryId too old (history entries expire after some time on Gmail's
         # side) -- can't recover the exact diff. Don't guess at old mail; just
         # re-anchor the watermark below so future notifications work correctly.
-        message_ids = []
-    return list(dict.fromkeys(message_ids))  # dedupe, preserve order (same message
-    # could appear in both a messageAdded and a labelAdded record)
+        return [], False
+    return list(dict.fromkeys(message_ids)), True  # dedupe, preserve order (same
+    # message could appear in both a messageAdded and a labelAdded record)
+
+
+_DIFF_RETRY_ATTEMPTS = 3
+_DIFF_RETRY_DELAY_SECONDS = 2
+
+
+def diff_new_message_ids(notified_history_id, sleep=time.sleep):
+    """Given the historyId from a push notification, return the ids of messages
+    added to INBOX since our last known point. Does NOT advance the stored
+    watermark -- call advance_watermark() only after the caller has actually
+    attempted to fetch and process each id, so a message can't be marked "seen"
+    before anything was ever done with it (e.g. if the session's case-count cap
+    or the per-session analysis rate limit rejects it downstream).
+
+    Retries an empty result: Gmail's Pub/Sub push notification can arrive
+    before the triggering message is actually queryable via history.list() --
+    a well-documented real-world race condition (Gmail's own indexing lags its
+    Pub/Sub notification by a few seconds in practice; see e.g. Hiver
+    Engineering's writeup and github.com/openclaw/gogcli#379). Since a push
+    notification only ever fires because SOMETHING changed, a first-try empty
+    result is inherently suspicious -- trusting it immediately risks silently
+    treating "not indexed yet" as "nothing new" and permanently missing a real
+    email once the watermark advances past it. `sleep` is injectable so tests
+    don't actually wait.
+
+    Known limitation: if the watermark file is lost/missing entirely (rather than
+    just stale), the very next notification's own triggering message can be
+    missed, since Gmail's history API returns entries *after* the given start id
+    -- run gmail_watch_start.py (which sets an initial watermark) before the
+    first real push, not after, to avoid this in normal operation."""
+    service = _service()
+    with _state_lock:
+        start_id = _read_state().get('last_history_id') or notified_history_id
+    for attempt in range(1, _DIFF_RETRY_ATTEMPTS + 1):
+        message_ids, recoverable = _list_new_message_ids(service, start_id)
+        if message_ids:
+            if attempt > 1:
+                _logger.info('Gmail diff succeeded after retry: attempt=%d startHistoryId=%s notifiedHistoryId=%s',
+                              attempt, start_id, notified_history_id)
+            return message_ids
+        if not recoverable or attempt == _DIFF_RETRY_ATTEMPTS:
+            return message_ids
+        _logger.info('Gmail diff empty, retrying (Gmail indexing lag): attempt=%d startHistoryId=%s notifiedHistoryId=%s',
+                      attempt, start_id, notified_history_id)
+        sleep(_DIFF_RETRY_DELAY_SECONDS)
+    return []
 
 
 def fetch_raw(message_id):
