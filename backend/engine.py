@@ -135,7 +135,15 @@ def analyze(raw, source='upload', live=False, context=None):
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError('Email must be between 1 byte and 1 MiB.')
     msg = BytesParser(policy=policy.default).parsebytes(raw)
-    if not msg.get('From') or not msg.get('Subject'):
+    # Subject is optional per RFC 5322 and commonly sent blank -- msg.get()
+    # returns '' (falsy) for a present-but-empty header and None only when
+    # the header is genuinely absent, so `not msg.get('Subject')` wrongly
+    # rejected a real, legitimately blank-subject email as malformed.
+    # Confirmed live: a real Gmail-push email with Subject: <empty> was
+    # permanently dropped by this check. From has no such legitimate empty
+    # case (a blank sender is not a real, deliverable email), so it keeps
+    # the stricter truthiness check.
+    if not msg.get('From') or msg.get('Subject') is None:
         raise ValueError('Include at least From and Subject headers in a raw email.')
     attachments, texts, html_links, html_sources = [], [], [], []
     for i, part in enumerate(msg.walk()):

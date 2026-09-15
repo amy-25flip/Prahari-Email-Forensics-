@@ -85,6 +85,29 @@ def test_upload_preserves_bytes_and_paste_is_labeled(client):
     assert r['source'] == 'upload'
 
 
+def test_blank_but_present_subject_is_accepted():
+    # Confirmed live: a real Gmail-push email with an empty Subject header
+    # (Subject is optional per RFC 5322 and commonly sent blank) was
+    # permanently dropped -- msg.get('Subject') returns '' for a
+    # present-but-empty header, and `not msg.get('Subject')` treated that
+    # the same as the header being entirely absent.
+    raw = b'From: user@example.org\r\nSubject: \r\n\r\nHello\r\n'
+    result = engine.analyze(raw)
+    assert result['subject'] == ''
+
+
+def test_missing_subject_header_entirely_is_still_rejected():
+    raw = b'From: user@example.org\r\n\r\nHello\r\n'
+    with pytest.raises(ValueError, match='From and Subject'):
+        engine.analyze(raw)
+
+
+def test_blank_from_is_still_rejected():
+    raw = b'From: \r\nSubject: Hello\r\n\r\nBody\r\n'
+    with pytest.raises(ValueError, match='From and Subject'):
+        engine.analyze(raw)
+
+
 def test_limits_and_request_header(client):
     assert client.post('/api/samples/account').status_code == 403
     assert client.post('/api/analyze', content=b'x' * 1500001, headers=HEADERS).status_code == 413
