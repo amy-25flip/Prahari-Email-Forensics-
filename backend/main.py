@@ -332,6 +332,9 @@ async def gmail_push(request: Request):
         gmail_push_logger.info(
             'Gmail push diff complete: historyId=%s message_count=%d message_ids=%s',
             history_id, len(message_ids), message_ids)
+    except gmail_integration.EmptyHistoryDiff as exc:
+        gmail_push_logger.warning('Gmail push diff deferred for historyId=%s: %s', history_id, exc)
+        raise HTTPException(503, 'Gmail history is not queryable yet; retry this push') from exc
     except Exception as exc:
         gmail_push_logger.exception('Gmail push diff failed for historyId=%s: %s', history_id, exc)
         raise

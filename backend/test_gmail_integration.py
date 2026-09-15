@@ -130,6 +130,31 @@ class FakeService:
         return self._users
 
 
+def test_start_watch_uses_explicit_inbox_include_filter(monkeypatch):
+    calls = []
+    class FakeWatch:
+        def execute(self):
+            return {'historyId': '123', 'expiration': '999'}
+    class WatchUsers:
+        def watch(self, **kwargs):
+            calls.append(kwargs)
+            return FakeWatch()
+    class WatchService:
+        def users(self):
+            return WatchUsers()
+    monkeypatch.setattr(gi, '_service', lambda: WatchService())
+
+    assert gi.start_watch('projects/p/topics/t') == {'historyId': '123', 'expiration': '999'}
+    assert calls == [{
+        'userId': 'me',
+        'body': {
+            'topicName': 'projects/p/topics/t',
+            'labelIds': ['INBOX'],
+            'labelFilterBehavior': 'INCLUDE',
+        },
+    }]
+
+
 def test_diff_new_message_ids_does_not_advance_watermark(monkeypatch):
     # Regression: diffing must be a pure read -- advancing the watermark is a
     # separate, explicit step the caller takes only after actually attempting to
@@ -226,8 +251,54 @@ def test_diff_gives_up_after_max_retries_on_persistent_empty_result(monkeypatch)
     slept = []
     ids = gi.diff_new_message_ids('999', sleep=slept.append)
     assert ids == []
-    assert len(calls) == gi._DIFF_RETRY_ATTEMPTS
+    assert len(calls) == gi._DIFF_RETRY_ATTEMPTS + 1  # final call is the unfiltered probe
     assert len(slept) == gi._DIFF_RETRY_ATTEMPTS - 1  # sleeps only BETWEEN attempts, not after the last one
+
+
+def test_diff_defers_when_newer_history_window_is_not_queryable_after_retries(monkeypatch):
+    # Stronger regression for the Gmail indexing-lag race: if our stored
+    # watermark is older than the notification but Gmail still returns no
+    # filtered OR unfiltered history after retries, advancing would make a real
+    # message permanently disappear. Let Pub/Sub retry the notification later.
+    gi.advance_watermark('900')
+    calls = []
+    class EmptyUsers(FakeUsers):
+        def list(self, **kwargs):
+            calls.append(kwargs)
+            return FakeHistoryList([])
+    class EmptyService:
+        def users(self):
+            return EmptyUsers([], {})
+    monkeypatch.setattr(gi, '_service', lambda: EmptyService())
+    slept = []
+
+    with pytest.raises(gi.EmptyHistoryDiff):
+        gi.diff_new_message_ids('999', sleep=slept.append)
+
+    assert len([c for c in calls if c.get('historyTypes') == ['messageAdded', 'labelAdded']]) == gi._DIFF_RETRY_ATTEMPTS
+    assert len([c for c in calls if 'historyTypes' not in c]) == 1  # final unfiltered probe
+    assert slept == [gi._DIFF_RETRY_DELAY_SECONDS, gi._DIFF_RETRY_DELAY_SECONDS]
+
+
+def test_diff_accepts_empty_new_message_diff_when_unfiltered_history_exists(monkeypatch):
+    # Not every INBOX-related push is a new message. If an unfiltered history
+    # probe sees some other history record, the empty add-message diff is not
+    # the "Gmail notified before indexing anything" race and can be acked.
+    gi.advance_watermark('900')
+    calls = []
+    class NonAddUsers(FakeUsers):
+        def list(self, **kwargs):
+            calls.append(kwargs)
+            if 'historyTypes' in kwargs:
+                return FakeHistoryList([])
+            return FakeHistoryList([{'labelsRemoved': [{'message': {'id': 'msg1'}, 'labelIds': ['UNREAD']}]}])
+    class NonAddService:
+        def users(self):
+            return NonAddUsers([], {})
+    monkeypatch.setattr(gi, '_service', lambda: NonAddService())
+
+    assert gi.diff_new_message_ids('999', sleep=lambda seconds: None) == []
+    assert len([c for c in calls if 'historyTypes' not in c]) == 1
 
 
 def test_diff_never_retries_a_404_since_it_can_never_recover(monkeypatch):
@@ -509,6 +580,23 @@ def test_push_endpoint_retries_busy_analysis_slot_then_succeeds(client, monkeypa
     assert response.status_code == 200
     assert response.json()['processed'] == 1
     assert attempts['n'] == 3
+
+
+def test_push_endpoint_defers_empty_history_diff_without_advancing_watermark(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    advanced = []
+    def not_queryable(history_id):
+        raise gi.EmptyHistoryDiff('Gmail history not queryable yet')
+    monkeypatch.setattr(gi, 'diff_new_message_ids', not_queryable)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: advanced.append(history_id))
+
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '999'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+
+    assert response.status_code == 503
+    assert advanced == []
 
 
 def test_push_endpoint_unclaims_after_exhausting_retries_on_persistent_429(client, monkeypatch, tmp_path):

@@ -113,11 +113,18 @@ def session_sid():
     return hashed
 
 
+class EmptyHistoryDiff(RuntimeError):
+    """Raised when Gmail says the mailbox advanced but history.list is still empty."""
+
+
 def start_watch(topic_name):
     """Register (or renew) push notifications for the INBOX label. Must be called
     again before the ~7-day expiration Gmail imposes on watch registrations."""
     service = _service()
-    response = service.users().watch(userId='me', body={'topicName': topic_name, 'labelIds': ['INBOX']}).execute()
+    response = service.users().watch(
+        userId='me',
+        body={'topicName': topic_name, 'labelIds': ['INBOX'], 'labelFilterBehavior': 'INCLUDE'},
+    ).execute()
     with _state_lock:
         state = _read_state()
         state['last_history_id'] = response['historyId']
@@ -166,6 +173,33 @@ def _list_new_message_ids(service, start_id):
     # message could appear in both a messageAdded and a labelAdded record)
 
 
+def _history_has_any_records(service, start_id):
+    """Return whether Gmail exposes any history at all after start_id.
+
+    Used only after the add-message diff stays empty: if an unfiltered history
+    probe finds records, the notification likely represented a non-new-message
+    INBOX change (read/unread/star/etc.) and can be safely acknowledged. If even
+    the unfiltered probe is empty while the notified historyId is newer than our
+    watermark, Gmail may still be indexing the change, so advancing would make a
+    new message permanently disappear from this pipeline.
+    """
+    try:
+        page_token = None
+        while True:
+            history = service.users().history().list(
+                userId='me', startHistoryId=start_id, labelId='INBOX',
+                pageToken=page_token).execute()
+            if history.get('history'):
+                return True, True
+            page_token = history.get('nextPageToken')
+            if not page_token:
+                return False, True
+    except HttpError as exc:
+        if exc.resp.status != 404:
+            raise
+        return False, False
+
+
 _DIFF_RETRY_ATTEMPTS = 3
 _DIFF_RETRY_DELAY_SECONDS = 2
 
@@ -197,18 +231,37 @@ def diff_new_message_ids(notified_history_id, sleep=time.sleep):
     service = _service()
     with _state_lock:
         start_id = _read_state().get('last_history_id') or notified_history_id
+    last_recoverable = True
     for attempt in range(1, _DIFF_RETRY_ATTEMPTS + 1):
         message_ids, recoverable = _list_new_message_ids(service, start_id)
+        last_recoverable = recoverable
         if message_ids:
             if attempt > 1:
                 _logger.info('Gmail diff succeeded after retry: attempt=%d startHistoryId=%s notifiedHistoryId=%s',
                               attempt, start_id, notified_history_id)
             return message_ids
-        if not recoverable or attempt == _DIFF_RETRY_ATTEMPTS:
+        if not recoverable:
             return message_ids
+        if attempt == _DIFF_RETRY_ATTEMPTS:
+            break
         _logger.info('Gmail diff empty, retrying (Gmail indexing lag): attempt=%d startHistoryId=%s notifiedHistoryId=%s',
                       attempt, start_id, notified_history_id)
         sleep(_DIFF_RETRY_DELAY_SECONDS)
+    if last_recoverable:
+        has_any_history, recoverable = _history_has_any_records(service, start_id)
+        try:
+            stale_window = int(start_id) < int(notified_history_id)
+        except (TypeError, ValueError):
+            stale_window = str(start_id) != str(notified_history_id)
+        if not has_any_history and recoverable and stale_window:
+            _logger.warning(
+                'Gmail diff still empty after retries and unfiltered probe; deferring notification so Pub/Sub can retry: startHistoryId=%s notifiedHistoryId=%s',
+                start_id, notified_history_id)
+            raise EmptyHistoryDiff(
+                f'Gmail history not queryable yet for {start_id}->{notified_history_id}')
+        _logger.info(
+            'Gmail diff empty after retries: startHistoryId=%s notifiedHistoryId=%s has_any_history=%s recoverable=%s',
+            start_id, notified_history_id, has_any_history, recoverable)
     return []
 
 
