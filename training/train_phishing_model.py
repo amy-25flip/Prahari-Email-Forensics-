@@ -71,9 +71,16 @@ def _dedup_key(subject, body):
 
 
 def load_deduplicated_and_resplit():
-    """Pool all three source files, drop cross-source near-duplicates (by normalized
-    subject+body, since that's what the uncased tokenizer effectively sees), then produce
-    a fresh stratified train/validation/test split so no eval row can leak into train."""
+    """Pool all three source files, drop cross-source EXACT duplicates by a normalized
+    key (lowercased, whitespace-collapsed subject+body, since that's what the uncased
+    tokenizer effectively sees) plus label-conflicting keys, then produce a fresh
+    stratified train/validation/test split so no eval row can leak into train.
+
+    Note: this removes only exact-after-normalization overlaps, NOT fuzzy/template
+    "near-duplicate" campaign variants -- those can still span the split, so the
+    resulting metrics are a deduped random-split figure, not a leakage-free
+    generalization guarantee. (Fuzzy body similarity lives in backend/campaigns.py,
+    for campaign correlation, and is deliberately not used here.)"""
     frames = []
     for name in ("train", "validation", "test"):
         df = pd.read_csv(DATA_DIR / f"{name}.csv", usecols=["subject", "body", "label"])
@@ -109,7 +116,7 @@ def load_deduplicated_and_resplit():
 
     dedup_stats = {
         "rows_before_dedup": before,
-        "rows_removed_as_near_duplicate_or_label_conflict": removed,
+        "rows_removed_as_exact_normalized_duplicate_or_label_conflict": removed,
         "label_conflicting_groups_removed": len(conflicting_keys),
     }
     dataset = DatasetDict({
@@ -162,7 +169,7 @@ def main():
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    print("Loading dataset (deduplicating cross-split near-duplicates, fresh stratified split)...")
+    print("Loading dataset (removing cross-split exact-normalized duplicates + label conflicts, fresh stratified split)...")
     dataset, dedup_stats = load_deduplicated_and_resplit()
     print(f"Dedup: {dedup_stats}")
 

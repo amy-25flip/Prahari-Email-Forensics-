@@ -6,8 +6,13 @@ const tone = score => score >= 60 ? 'danger' : score >= 25 ? 'warn' : 'good'
 const TOKEN_KEY = 'efp_gmail_token'
 const POLL_MS = 15000
 
-function readToken() { try { return localStorage.getItem(TOKEN_KEY) || '' } catch { return '' } }
-function writeToken(value) { try { if (value) localStorage.setItem(TOKEN_KEY, value); else localStorage.removeItem(TOKEN_KEY) } catch { /* private browsing / storage blocked */ } }
+// sessionStorage (not localStorage): the Gmail cases read token grants access to
+// every push-analyzed email, so it's kept only for this tab/session and cleared
+// when the tab closes -- shrinking the window an XSS or a shared/persistent
+// browser profile could lift it from. (A server-side per-user auth flow would be
+// stronger still, and is the right move before any real public deployment.)
+function readToken() { try { return sessionStorage.getItem(TOKEN_KEY) || '' } catch { return '' } }
+function writeToken(value) { try { if (value) sessionStorage.setItem(TOKEN_KEY, value); else sessionStorage.removeItem(TOKEN_KEY) } catch { /* private browsing / storage blocked */ } }
 
 export default function GmailAlerts({ openCase }) {
   const [token, setToken] = useState(readToken)
@@ -46,7 +51,7 @@ export default function GmailAlerts({ openCase }) {
 
   if (!token) return <section className="section">
     <div className="section-head"><h3>Connect Gmail alerts</h3><KeyRound size={18}/></div>
-    <p>Emails analyzed automatically from the live Gmail push pipeline land in a separate, dedicated session, not this browser's own case history. Enter the server's Gmail cases read token (<code>GMAIL_CASES_READ_TOKEN</code>) to view them here. The token is stored only in this browser.</p>
+    <p>Emails analyzed automatically from the live Gmail push pipeline land in a separate, dedicated session, not this browser's own case history. Enter the server's Gmail cases read token (<code>GMAIL_CASES_READ_TOKEN</code>) to view them here. The token is kept only for this browser tab and cleared when you close it.</p>
     <form className="smtp-fields" onSubmit={connect}><label>Read token<input type="password" aria-label="Gmail cases read token" value={draft} onChange={e => setDraft(e.target.value)} autoComplete="off"/></label><button className="primary" type="submit" disabled={!draft.trim()}>Connect</button></form>
     {error && <p className="map-status warn">{error}</p>}
   </section>

@@ -791,3 +791,124 @@ def test_gmail_watch_start_endpoint_registers_watch_on_this_instance(client, mon
     response = client.post('/api/gmail/watch/start', headers={**HEADERS, 'Authorization': 'Bearer the-admin-token'})
     assert response.status_code == 200
     assert response.json() == {'historyId': '123', 'expiration': '999'}
+
+
+# --- Dead-letter retry queue (closes the transient-failure loss window) ---
+
+def test_dead_letter_record_pending_and_clear():
+    assert gi.pending_retry_message_ids() == []
+    gi.record_failed_message('m1')
+    gi.record_failed_message('m2')
+    assert set(gi.pending_retry_message_ids()) == {'m1', 'm2'}
+    gi.clear_failed_message('m1')
+    assert gi.pending_retry_message_ids() == ['m2']
+    gi.clear_failed_message('never-there')  # must not raise
+    assert gi.pending_retry_message_ids() == ['m2']
+
+
+def test_dead_letter_queue_is_bounded(monkeypatch):
+    monkeypatch.setattr(gi, '_MAX_PENDING_RETRY_IDS', 3)
+    for mid in ['a', 'b', 'c', 'd']:
+        gi.record_failed_message(mid)
+    ids = gi.pending_retry_message_ids()
+    assert len(ids) == 3 and 'a' not in ids  # oldest evicted once the bound is exceeded
+
+
+def test_dead_letter_queue_gives_up_after_attempt_cap(monkeypatch):
+    monkeypatch.setattr(gi, '_MAX_RETRY_ATTEMPTS', 3)
+    for _ in range(3):
+        gi.record_failed_message('stuck')  # attempts -> 1, 2, 3
+    assert gi.pending_retry_message_ids() == []  # attempts (3) >= cap: no longer eligible
+    assert gi.drain_exhausted_retries() == ['stuck']
+    assert gi.drain_exhausted_retries() == []  # already drained
+
+
+def test_push_dead_letters_transient_failure_and_recovers_on_next_notification(client, monkeypatch, tmp_path):
+    # The core fix: a message whose in-request retries are all exhausted for a
+    # TRANSIENT reason must not be lost when the watermark advances past it -- it
+    # is dead-lettered and retried on a later notification.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    fail = {'on': True}
+    def fetch_raw(message_id):
+        if fail['on']:
+            resp = type('R', (), {'status': 503, 'reason': 'Service Unavailable'})()
+            raise HttpError(resp, b'temporarily down')
+        return b'From: a@b.com\r\nTo: c@d.com\r\nSubject: recovered later\r\n\r\nbody'
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['flaky'])
+    payload1 = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '10'}).encode()).decode()
+    first = client.post('/api/gmail/push', json={'message': {'data': payload1}}, headers={'Authorization': 'Bearer fake'})
+    assert first.status_code == 200 and first.json()['processed'] == 0
+    assert gi.pending_retry_message_ids() == ['flaky']  # durably queued, not lost
+
+    fail['on'] = False
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: [])  # nothing new this time
+    payload2 = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '20'}).encode()).decode()
+    second = client.post('/api/gmail/push', json={'message': {'data': payload2}}, headers={'Authorization': 'Bearer fake'})
+    assert second.status_code == 200 and second.json()['processed'] == 1  # recovered from the dead-letter queue
+    assert gi.pending_retry_message_ids() == []  # cleared after success
+    assert len(store.all_cases(gi.session_sid())) == 1
+
+
+def test_push_does_not_dead_letter_a_permanent_failure(client, monkeypatch, tmp_path):
+    # A permanent Gmail error (404 deleted) can never succeed on retry, so it must
+    # NOT be queued -- otherwise the queue would churn on it until the attempt cap.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['gone'])
+    def fetch_raw(message_id):
+        resp = type('R', (), {'status': 404, 'reason': 'Not Found'})()
+        raise HttpError(resp, b'deleted')
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '30'}).encode()).decode()
+    resp = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert resp.status_code == 200 and resp.json()['processed'] == 0
+    assert gi.pending_retry_message_ids() == []  # permanent failure is not retried
+
+
+def test_push_dead_letter_retry_does_not_double_process_same_push_ids(client, monkeypatch, tmp_path):
+    # A message failing transiently in this notification's own diff must not also
+    # be re-attempted by the dead-letter pass in the SAME request.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['msg-x'])
+    calls = {'n': 0}
+    def fetch_raw(message_id):
+        calls['n'] += 1
+        resp = type('R', (), {'status': 503, 'reason': 'Service Unavailable'})()
+        raise HttpError(resp, b'down')
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '40'}).encode()).decode()
+    resp = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert resp.status_code == 200 and resp.json()['processed'] == 0
+    assert calls['n'] == main._PUSH_MAX_ATTEMPTS  # exactly the in-request retries, no extra same-request dead-letter attempt
+    assert gi.pending_retry_message_ids() == ['msg-x']  # queued for a FUTURE notification
+
+
+def test_gmail_403_rate_limit_is_transient_but_other_403_is_permanent():
+    # Regression (review): Gmail returns quota/rate-limit errors as HTTP 403 with
+    # reason rateLimitExceeded/userRateLimitExceeded and documents them as
+    # retryable -- classifying every 403 as permanent would silently drop a merely
+    # rate-limited message. A genuinely permanent 403 (domainPolicy) and a 404
+    # must still be permanent.
+    def err(status, body):
+        resp = type('R', (), {'status': status, 'reason': 'x'})()
+        return HttpError(resp, body)
+    assert main._gmail_httperror_is_transient(429, err(429, b'')) is True
+    assert main._gmail_httperror_is_transient(503, err(503, b'')) is True
+    assert main._gmail_httperror_is_transient(403, err(403, b'{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}')) is True
+    assert main._gmail_httperror_is_transient(403, err(403, b'{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}')) is True
+    assert main._gmail_httperror_is_transient(403, err(403, b'{"error":{"errors":[{"reason":"domainPolicy"}]}}')) is False
+    assert main._gmail_httperror_is_transient(404, err(404, b'')) is False
+    assert main._gmail_httperror_is_transient(None, err(0, b'')) is False

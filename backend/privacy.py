@@ -1,7 +1,11 @@
 """Allowlisted redacted report projection; never mutate retained evidence."""
 def redact(report):
     masked = '[REDACTED]'
-    auth = {name: {'status': report['authentication'][name]['status'], 'detail': masked}
+    # Tolerate a retained case that predates a given auth mechanism (e.g. an old
+    # cases.sqlite row stored before ARC support was added) -- a missing key must
+    # degrade to an "unknown" status, never KeyError into a 500 on redacted export.
+    stored_auth = report.get('authentication') or {}
+    auth = {name: {'status': (stored_auth.get(name) or {}).get('status', 'unknown'), 'detail': masked}
             for name in ('spf', 'dkim', 'dmarc', 'arc')}
     return {
         'id': report['id'], 'created': report['created'], 'sample': report.get('sample', False),

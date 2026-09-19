@@ -4,6 +4,13 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    # DEMO/EVALUATION ONLY. `free` is a placeholder that will NOT reliably run
+    # this image as-is: BERT + torch CPU inference needs more than the free
+    # tier's 512 MB RAM (expect OOM / failed readiness, silently degrading to
+    # local_model.py's "Unavailable" path), and the free tier has no persistent
+    # disk, so the /data case database and Gmail watch state are lost on every
+    # redeploy/idle-recycle. For a real deployment, change `plan` to a paid
+    # instance (e.g. `standard`) AND attach a persistent disk mounted at /data.
     plan: free
     # /api/health always returns status:ready regardless of whether the BERT
     # model has finished loading (local_model.status starts at 'loading' and

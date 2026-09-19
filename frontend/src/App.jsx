@@ -101,7 +101,7 @@ export default function App() {
   }
   async function openGmailCase(id) {
     if (busy) return
-    const token = (() => { try { return localStorage.getItem('efp_gmail_token') } catch { return '' } })()
+    const token = (() => { try { return sessionStorage.getItem('efp_gmail_token') } catch { return '' } })()
     if (!token) return
     setBusy(true)
     try { setResult((await axios.get(`/api/gmail/cases/${id}`, { headers: { Authorization: `Bearer ${token}` } })).data); setView('analyze'); setTab('evidence'); setVerification(null) }

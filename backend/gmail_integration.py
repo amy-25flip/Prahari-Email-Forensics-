@@ -320,13 +320,15 @@ def unclaim_processed(message_id):
     message that gets reported again in a future notification) isn't
     rejected as "already claimed" for work that never happened.
 
-    Known remaining limitation: advance_watermark() still moves the
-    watermark past this notification's historyId regardless of per-message
-    outcome (so a mid-batch crash can't leave it stuck ahead of unattempted
-    work) -- so unclaiming alone does not guarantee a LATER, separate
-    notification will ever re-report this exact message once the watermark
-    has passed it. This closes the same-request retry window, not every
-    possible loss window.
+    advance_watermark() still moves the watermark past this notification's
+    historyId regardless of per-message outcome (so a mid-batch crash can't
+    leave it stuck ahead of unattempted work), so unclaiming alone does not
+    guarantee a LATER notification will re-report this exact message. That
+    remaining loss window is now covered separately by the dead-letter queue
+    (record_failed_message/pending_retry_message_ids): a TRANSIENT per-message
+    failure is durably queued and retried on subsequent notifications even
+    after the watermark advances. Unclaiming still matters for the
+    same-request retry loop and for a message re-reported in its own right.
     """
     with _state_lock:
         state = _read_state()
@@ -335,6 +337,73 @@ def unclaim_processed(message_id):
             ids.remove(message_id)
             state['processed_message_ids'] = ids
             _write_state(state)
+
+
+# Durable dead-letter queue for messages whose in-request retries were all
+# exhausted for a TRANSIENT reason (this instance's own 429, or a 5xx/429 from
+# Gmail). Recorded here -- persisted in the same state file, under the same lock
+# as the watermark/claim state -- so they're retried on subsequent push
+# notifications instead of being lost the moment advance_watermark() moves past
+# them. Gmail's history.list only returns entries AFTER the stored watermark, so
+# without this queue a transiently-failed message could never be re-reported and
+# was silently, permanently dropped (the loss window unclaim_processed() itself
+# documents it does NOT close). PERMANENT failures (a malformed/oversized email,
+# a deleted or forbidden message) are deliberately NOT queued here -- retrying
+# them can never succeed -- so the caller records those as permanent failures
+# instead. Bounded two ways: a max queue length, and a per-message attempt cap
+# after which a message is given up on (surfaced via drain_exhausted_retries).
+_MAX_PENDING_RETRY_IDS = 100
+_MAX_RETRY_ATTEMPTS = 5
+
+
+def record_failed_message(message_id):
+    """Queue a transiently-failed message id for retry on a future notification,
+    or bump its attempt count if already queued. Atomic under _state_lock."""
+    with _state_lock:
+        state = _read_state()
+        pending = state.get('pending_retry_message_ids', [])
+        for entry in pending:
+            if entry.get('id') == message_id:
+                entry['attempts'] = entry.get('attempts', 0) + 1
+                break
+        else:
+            pending.append({'id': message_id, 'attempts': 1})
+        state['pending_retry_message_ids'] = pending[-_MAX_PENDING_RETRY_IDS:]
+        _write_state(state)
+
+
+def pending_retry_message_ids():
+    """Message ids still eligible for a retry (attempt count under the cap)."""
+    with _state_lock:
+        pending = _read_state().get('pending_retry_message_ids', [])
+    return [e['id'] for e in pending if e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
+
+
+def clear_failed_message(message_id):
+    """Remove a message id from the retry queue (it finally succeeded, turned out
+    permanently unprocessable, or is otherwise being given up on)."""
+    with _state_lock:
+        state = _read_state()
+        pending = state.get('pending_retry_message_ids', [])
+        remaining = [e for e in pending if e.get('id') != message_id]
+        if len(remaining) != len(pending):
+            state['pending_retry_message_ids'] = remaining
+            _write_state(state)
+
+
+def drain_exhausted_retries():
+    """Remove and return the ids that have hit the per-message attempt cap, so the
+    caller can log a permanent-failure/give-up event. Keeps the queue bounded even
+    when a message stays permanently unreachable (e.g. deleted right after it was
+    first seen) rather than retrying it forever."""
+    with _state_lock:
+        state = _read_state()
+        pending = state.get('pending_retry_message_ids', [])
+        exhausted = [e['id'] for e in pending if e.get('attempts', 0) >= _MAX_RETRY_ATTEMPTS]
+        if exhausted:
+            state['pending_retry_message_ids'] = [e for e in pending if e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
+            _write_state(state)
+        return exhausted
 
 
 def advance_watermark(notified_history_id):

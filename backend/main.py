@@ -267,6 +267,95 @@ async def analyze_request(request: Request):
     return await run_in_threadpool(execute, request, content, source, live, False, context, receiver)
 
 
+def _gmail_httperror_is_transient(status, exc):
+    """Classify a googleapiclient HttpError as transient (worth retrying) or
+    permanent. 429 and 5xx are transient. Gmail ALSO returns its quota/rate-limit
+    errors as HTTP 403 with reason `rateLimitExceeded`/`userRateLimitExceeded`,
+    which Google documents as retryable with backoff -- so those specific 403s are
+    transient too, while a genuinely permanent 403 (domainPolicy, access revoked)
+    and a 404 (deleted) stay permanent. Matching the reason string (from the error
+    body) avoids dropping a rate-limited message as if it were unprocessable.
+    See https://developers.google.com/workspace/gmail/api/guides/handle-errors."""
+    if not isinstance(status, int):
+        return False
+    if status == 429 or status >= 500:
+        return True
+    if status == 403:
+        text = ''
+        try:
+            text = (getattr(exc, 'content', b'') or b'').decode('utf-8', 'replace')
+        except (AttributeError, UnicodeDecodeError):
+            text = ''
+        text += str(exc)
+        return 'rateLimitExceeded' in text or 'userRateLimitExceeded' in text
+    return False
+
+
+async def _process_gmail_message(request, mid, history_id):
+    """Claim, fetch and analyze one Gmail message id, with the same bounded
+    in-request retry for transient failures used for both freshly-notified ids
+    and dead-lettered retries. Returns one of:
+      ('stored', result)            -- analyzed and persisted
+      ('skipped', None)             -- another call already claimed/processed it
+      ('failed_transient', (status, detail))  -- worth retrying later
+      ('failed_permanent', (status, detail))  -- can never succeed; do not retry
+    On any failure the claim is released so a later attempt isn't wrongly
+    rejected as already-claimed."""
+    from starlette.concurrency import run_in_threadpool
+    from googleapiclient.errors import HttpError
+    import gmail_integration
+    if not await run_in_threadpool(gmail_integration.claim_processed, mid):
+        gmail_push_logger.info('Gmail push message skipped: historyId=%s messageId=%s reason=already_claimed', history_id, mid)
+        return 'skipped', None
+    gmail_push_logger.info('Gmail push message claimed: historyId=%s messageId=%s', history_id, mid)
+    last_status, last_detail, transient = None, None, False
+    for attempt in range(1, _PUSH_MAX_ATTEMPTS + 1):
+        try:
+            raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
+            gmail_push_logger.info('Gmail push message fetched: historyId=%s messageId=%s bytes=%d', history_id, mid, len(raw))
+            result = await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None)
+            gmail_push_logger.info(
+                'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
+                history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
+            return 'stored', result
+        except HTTPException as exc:
+            # 429 = OUR OWN transient capacity (the shared 2-slot analysis
+            # semaphore, or the fixed gmail-push session's per-minute cap) --
+            # nothing wrong with this email. Any other 4xx (malformed/oversized)
+            # will never succeed on retry, so it's permanent.
+            last_status, last_detail = exc.status_code, exc.detail
+            if exc.status_code == 429 and attempt < _PUSH_MAX_ATTEMPTS:
+                gmail_push_logger.info('Gmail push message busy, retrying: historyId=%s messageId=%s attempt=%d status=%s',
+                                       history_id, mid, attempt, exc.status_code)
+                await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
+                continue
+            transient = exc.status_code == 429
+            gmail_push_logger.warning(
+                'Gmail push message failed with HTTPException: historyId=%s messageId=%s status=%s detail=%s',
+                history_id, mid, exc.status_code, exc.detail)
+            break
+        except HttpError as exc:
+            # A transient Gmail-side error (5xx, 429, or a 403 rate-limit) is
+            # retryable; a genuinely permanent one (404 deleted, 403 policy/revoked)
+            # is not -- see _gmail_httperror_is_transient().
+            last_status = getattr(getattr(exc, 'resp', None), 'status', None)
+            last_detail = str(exc)
+            retryable = _gmail_httperror_is_transient(last_status, exc)
+            if retryable and attempt < _PUSH_MAX_ATTEMPTS:
+                gmail_push_logger.info(
+                    'Gmail push message hit a transient Gmail API error, retrying: historyId=%s messageId=%s attempt=%d status=%s',
+                    history_id, mid, attempt, last_status)
+                await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
+                continue
+            transient = retryable
+            gmail_push_logger.warning(
+                'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
+                history_id, mid, last_status, exc)
+            break
+    await run_in_threadpool(gmail_integration.unclaim_processed, mid)
+    return ('failed_transient' if transient else 'failed_permanent'), (last_status, last_detail)
+
+
 @app.post('/api/gmail/push')
 async def gmail_push(request: Request):
     """Google Cloud Pub/Sub push target for real-time Gmail notifications (PS's
@@ -285,7 +374,6 @@ async def gmail_push(request: Request):
     actually arrives here).
     """
     from starlette.concurrency import run_in_threadpool
-    from googleapiclient.errors import HttpError
     import gmail_integration
     gmail_push_logger.info('Gmail push notification received')
     audience = os.getenv('GMAIL_PUSH_AUDIENCE')
@@ -341,80 +429,58 @@ async def gmail_push(request: Request):
     processed = []
     skipped = 0
     failed = 0
+    attempted_this_push = set()
     for mid in message_ids:
-        # Claim BEFORE fetching, atomically -- not a check then a separate mark
-        # after fetch -- so two concurrent notifications for the same message
-        # (Gmail can report it via a messageAdded event in one notification and
-        # a labelAdded event in a later, separate one) can't both race past a
-        # "not yet processed" check and both store a duplicate case. Confirmed
-        # live as a real bug before this existed.
-        if not await run_in_threadpool(gmail_integration.claim_processed, mid):
+        attempted_this_push.add(mid)
+        outcome, payload = await _process_gmail_message(request, mid, history_id)
+        if outcome == 'stored':
+            processed.append(payload)
+            # If this id had been dead-lettered by an earlier notification and now
+            # succeeds via the normal diff, drop its stale retry-queue entry so a
+            # later dead-letter pass doesn't waste an attempt re-checking it.
+            await run_in_threadpool(gmail_integration.clear_failed_message, mid)
+        elif outcome == 'skipped':
             skipped += 1
-            gmail_push_logger.info('Gmail push message skipped: historyId=%s messageId=%s reason=already_claimed', history_id, mid)
-            continue
-        gmail_push_logger.info('Gmail push message claimed: historyId=%s messageId=%s', history_id, mid)
-        stored, last_status, last_detail = False, None, None
-        for attempt in range(1, _PUSH_MAX_ATTEMPTS + 1):
-            try:
-                raw = await run_in_threadpool(gmail_integration.fetch_raw, mid)
-                gmail_push_logger.info('Gmail push message fetched: historyId=%s messageId=%s bytes=%d', history_id, mid, len(raw))
-                result = await run_in_threadpool(execute, request, raw, 'gmail-push', True, False, None, None)
-                processed.append(result)
-                gmail_push_logger.info(
-                    'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
-                    history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
-                stored = True
-                break
-            except HTTPException as exc:
-                last_status, last_detail = exc.status_code, exc.detail
-                # 429 here means OUR OWN transient capacity (the shared
-                # 2-slot analysis semaphore, or the fixed gmail-push
-                # session's own per-minute cap) was momentarily exhausted --
-                # nothing wrong with this email. Confirmed live: concurrent
-                # web-UI testing or a burst of pushes could saturate these
-                # and permanently drop an otherwise-good message. A 4xx that
-                # isn't 429 (malformed/oversized email) will never succeed
-                # on retry, so don't waste attempts on it.
-                if exc.status_code == 429 and attempt < _PUSH_MAX_ATTEMPTS:
-                    gmail_push_logger.info(
-                        'Gmail push message busy, retrying: historyId=%s messageId=%s attempt=%d status=%s',
-                        history_id, mid, attempt, exc.status_code)
-                    await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
-                    continue
-                gmail_push_logger.warning(
-                    'Gmail push message failed with HTTPException: historyId=%s messageId=%s status=%s detail=%s',
-                    history_id, mid, exc.status_code, exc.detail)
-                break
-            except HttpError as exc:
-                last_status = getattr(getattr(exc, 'resp', None), 'status', None)
-                last_detail = str(exc)
-                # A transient Gmail-side error (5xx, or 429 quota) previously got
-                # zero retries here -- unlike the HTTPException/429 branch above --
-                # then still fell through to unclaim-but-advance-watermark below,
-                # so a one-off Gmail API blip on fetch_raw() could permanently
-                # drop a perfectly good message. Retry it the same way a 429 from
-                # our OWN capacity limits is retried; a genuinely permanent error
-                # (404 message deleted, 403 permission revoked) still breaks
-                # immediately since retrying it can never succeed.
-                if isinstance(last_status, int) and (last_status == 429 or last_status >= 500) and attempt < _PUSH_MAX_ATTEMPTS:
-                    gmail_push_logger.info(
-                        'Gmail push message hit a transient Gmail API error, retrying: historyId=%s messageId=%s attempt=%d status=%s',
-                        history_id, mid, attempt, last_status)
-                    await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
-                    continue
-                gmail_push_logger.warning(
-                    'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
-                    history_id, mid, last_status, exc)
-                break  # one bad/oversized/over-quota/Gmail-API-error message must not sink the rest of the batch
-        if not stored:
+        else:
             failed += 1
-            # Un-claim so this message isn't permanently marked "done" for
-            # work that never actually happened -- see unclaim_processed()'s
-            # docstring for the retry window this does and doesn't cover.
-            await run_in_threadpool(gmail_integration.unclaim_processed, mid)
-            gmail_push_logger.warning(
-                'Gmail push message failed after all attempts, unclaimed (not guaranteed to be retried once the watermark advances): historyId=%s messageId=%s status=%s detail=%s',
-                history_id, mid, last_status, last_detail)
+            if outcome == 'failed_transient':
+                # Durably queue it so advance_watermark() below doesn't make it
+                # unreachable via Gmail's history API -- it gets retried on
+                # subsequent notifications until it succeeds or exhausts its budget.
+                await run_in_threadpool(gmail_integration.record_failed_message, mid)
+                gmail_push_logger.warning(
+                    'Gmail push message queued for retry after transient failure: historyId=%s messageId=%s status=%s detail=%s',
+                    history_id, mid, payload[0], payload[1])
+            else:
+                # Permanent (malformed/oversized/deleted/forbidden): retrying can
+                # never succeed, so don't queue it; drop any prior queue entry.
+                await run_in_threadpool(gmail_integration.clear_failed_message, mid)
+                gmail_push_logger.warning(
+                    'Gmail push message permanently failed, not retried: historyId=%s messageId=%s status=%s detail=%s',
+                    history_id, mid, payload[0], payload[1])
+    # Retry messages dead-lettered by EARLIER notifications (transient failures
+    # the watermark has since advanced past). Skip any id already handled in this
+    # notification's own diff above so it isn't attempted twice in one request.
+    recovered = 0
+    for mid in await run_in_threadpool(gmail_integration.pending_retry_message_ids):
+        if mid in attempted_this_push:
+            continue
+        outcome, payload = await _process_gmail_message(request, mid, history_id)
+        if outcome == 'stored':
+            processed.append(payload)
+            recovered += 1
+            await run_in_threadpool(gmail_integration.clear_failed_message, mid)
+            gmail_push_logger.info('Gmail push dead-letter message recovered: messageId=%s caseId=%s', mid, payload.get('id'))
+        elif outcome == 'skipped':
+            # Already claimed/processed by another path -- it's handled; stop retrying it.
+            await run_in_threadpool(gmail_integration.clear_failed_message, mid)
+        elif outcome == 'failed_transient':
+            await run_in_threadpool(gmail_integration.record_failed_message, mid)  # bump attempt count
+        else:
+            await run_in_threadpool(gmail_integration.clear_failed_message, mid)
+            gmail_push_logger.warning('Gmail push dead-letter message permanently failed, dropped: messageId=%s status=%s detail=%s', mid, payload[0], payload[1])
+    for mid in await run_in_threadpool(gmail_integration.drain_exhausted_retries):
+        gmail_push_logger.warning('Gmail push dead-letter message exhausted its retry budget, giving up: messageId=%s', mid)
     # Advance only after attempting every id this notification covers -- not before
     # processing, so a message a batch never got to isn't wrongly marked "seen".
     try:
