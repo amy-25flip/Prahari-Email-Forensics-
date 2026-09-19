@@ -5,7 +5,23 @@
 **/.pytest_cache
 **/data
 **/dist
+# Multi-GB fine-tuned model checkpoints/optimizer state -- never copied into the
+# image (serve_local.py points MODEL_ID at this only for local dev), but without
+# this a local `docker build .` from this workspace still uploads it as build
+# context, causing very slow builds or a context-size failure.
+training/output
 **/*.log
 **/*.err
 test.eml
 .env
+.env.*
+# Mirrors .gitignore's secret-shaped entries: these are already excluded from
+# git history, but .dockerignore is a separate control guarding the build
+# CONTEXT -- without this, a local `docker build .` (a normal dev/CI action)
+# would bake these into an image layer, extractable indefinitely from any
+# image that's ever pushed anywhere, regardless of git state.
+backend/gmail_oauth_client.json
+backend/gmail_token.json
+backend/gmail_watch_state.json
+backend/gmail_oauth_setup.log
+backend/serve_local.py

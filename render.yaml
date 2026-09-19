@@ -5,7 +5,15 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
-    healthCheckPath: /api/health
+    # /api/health always returns status:ready regardless of whether the BERT
+    # model has finished loading (local_model.status starts at 'loading' and
+    # is checked nowhere in that handler) -- pointing Render's rolling-deploy
+    # traffic cutover at it meant a fresh instance could receive real
+    # /api/analyze traffic before the model was ready, silently falling back
+    # to local_model.py's "Unavailable" degraded classification. /api/ready
+    # is the endpoint that actually reflects model readiness (503 until
+    # ready), matching the Dockerfile's own equivalent fix.
+    healthCheckPath: /api/ready
     envVars:
       - key: COOKIE_SECURE
         value: "1"

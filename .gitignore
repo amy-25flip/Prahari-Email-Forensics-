@@ -9,6 +9,7 @@ frontend/.vite/
 *.err
 .pytest_cache/
 backend/.pytest_tmp/
+backend/tmp-pytest-codex-gmail/
 .env
 .env.*
 *.eml

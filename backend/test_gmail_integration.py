@@ -461,10 +461,15 @@ def test_push_endpoint_survives_a_gmail_api_error_on_one_message(client, monkeyp
     # loop previously only caught HTTPException, so an HttpError would crash
     # the entire batch AND skip advance_watermark() entirely, potentially
     # reprocessing already-stored messages on the next notification.
+    # 'bad-msg' fails with a persistent 500 on every attempt, so it still
+    # exhausts all retries (see test_push_endpoint_retries_transient_gmail_api_error_then_succeeds
+    # for the transient-then-recovers case) and ends up unclaimed with the
+    # watermark still advancing -- the known, documented best-effort tradeoff.
     monkeypatch.setattr(store, 'DATA', tmp_path)
     _configure_push_env(monkeypatch)
     _mock_valid_token(monkeypatch)
     monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['bad-msg', 'good-msg'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
     def fetch_raw(message_id):
         if message_id == 'bad-msg':
             resp = type('R', (), {'status': 500, 'reason': 'Server Error'})()
@@ -478,6 +483,54 @@ def test_push_endpoint_survives_a_gmail_api_error_on_one_message(client, monkeyp
     assert response.status_code == 200
     assert response.json()['processed'] == 1  # good-msg still made it through
     assert advanced == ['77']  # watermark still advances despite the mid-batch error
+
+
+def test_push_endpoint_retries_transient_gmail_api_error_then_succeeds(client, monkeypatch, tmp_path):
+    # Regression: a transient Gmail-side error (5xx/quota) on fetch_raw() previously
+    # got zero retries at the notification level -- unlike our own 429s -- so a
+    # one-off Gmail API blip could permanently drop a perfectly good message. Now
+    # retried the same way, up to _PUSH_MAX_ATTEMPTS.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['flaky-msg'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    attempts = {'n': 0}
+    def flaky_fetch_raw(message_id):
+        attempts['n'] += 1
+        if attempts['n'] < 2:
+            resp = type('R', (), {'status': 503, 'reason': 'Service Unavailable'})()
+            raise HttpError(resp, b'temporarily unavailable')
+        return b'From: a@b.com\r\nTo: c@d.com\r\nSubject: recovered\r\n\r\nbody'
+    monkeypatch.setattr(gi, 'fetch_raw', flaky_fetch_raw)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '78'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 1
+    assert attempts['n'] == 2
+
+
+def test_push_endpoint_never_retries_a_permanent_gmail_api_error(client, monkeypatch, tmp_path):
+    # A 404 (message deleted before fetch) or other non-5xx/429 Gmail error will
+    # never succeed on retry -- must not waste attempts (or real wall-clock time)
+    # on it, matching the same "don't retry the unrecoverable" principle already
+    # applied to a 404 in diff_new_message_ids/_list_new_message_ids.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['gone-msg'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    calls = {'n': 0}
+    def fetch_raw(message_id):
+        calls['n'] += 1
+        resp = type('R', (), {'status': 404, 'reason': 'Not Found'})()
+        raise HttpError(resp, b'message not found')
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '79'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 0
+    assert calls['n'] == 1  # no retry attempted
 
 
 def test_push_endpoint_processes_valid_notification_end_to_end(client, monkeypatch, tmp_path):

@@ -388,6 +388,20 @@ async def gmail_push(request: Request):
             except HttpError as exc:
                 last_status = getattr(getattr(exc, 'resp', None), 'status', None)
                 last_detail = str(exc)
+                # A transient Gmail-side error (5xx, or 429 quota) previously got
+                # zero retries here -- unlike the HTTPException/429 branch above --
+                # then still fell through to unclaim-but-advance-watermark below,
+                # so a one-off Gmail API blip on fetch_raw() could permanently
+                # drop a perfectly good message. Retry it the same way a 429 from
+                # our OWN capacity limits is retried; a genuinely permanent error
+                # (404 message deleted, 403 permission revoked) still breaks
+                # immediately since retrying it can never succeed.
+                if isinstance(last_status, int) and (last_status == 429 or last_status >= 500) and attempt < _PUSH_MAX_ATTEMPTS:
+                    gmail_push_logger.info(
+                        'Gmail push message hit a transient Gmail API error, retrying: historyId=%s messageId=%s attempt=%d status=%s',
+                        history_id, mid, attempt, last_status)
+                    await asyncio.sleep(_PUSH_RETRY_DELAY_SECONDS)
+                    continue
                 gmail_push_logger.warning(
                     'Gmail push message failed with Gmail HttpError: historyId=%s messageId=%s status=%s reason=%s',
                     history_id, mid, last_status, exc)

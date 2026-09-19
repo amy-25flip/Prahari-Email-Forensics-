@@ -21,5 +21,8 @@ RUN useradd --uid 1000 --create-home appuser && mkdir /data && chown appuser /da
 ENV DATA_DIR=/data COOKIE_SECURE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PORT=8000
 USER appuser
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + __import__('os').environ.get('PORT','8000') + '/api/health', timeout=3)"
+# /api/ready (not /api/health) -- /api/health always reports status:ready
+# regardless of whether the BERT model has actually finished loading, so
+# using it here would let this HEALTHCHECK pass before the model is usable.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + __import__('os').environ.get('PORT','8000') + '/api/ready', timeout=3)"
 CMD ["python", "serve.py"]
