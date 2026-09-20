@@ -4,9 +4,13 @@ Addresses the PS's "real-time alerts before user interaction" requirement for Gm
 different reliability class from the backend's API integrations (AbuseIPDB, VirusTotal, ipwho.is, IANA RDAP):
 those are documented, stable REST APIs. This extension works by replicating Gmail's own undocumented
 "Show original" request. **It is not an official Gmail integration and can break if Google changes Gmail's
-markup.** Treat it as a working demo of the concept, not a hardened production component — it has not been
-tested end-to-end against a live Gmail account by the assistant that built it (that would require logging
-into your Gmail, which it will not do; you need to load and test this yourself).
+markup.** Treat it as a working demo of the concept, not a hardened production component. It was verified
+end-to-end against a live Gmail account on 2026-09-20 — token acquisition, the original-message fetch,
+backend analysis, and the in-Gmail risk banner all confirmed working. Because it depends on Gmail's
+private markup it can still break when Google changes the Gmail frontend, so re-verify after Gmail
+updates. Note also that current Gmail serves the source only through an HTML "Show original" viewer, so
+the extension reconstructs the raw message from that page rather than obtaining Gmail's bit-identical
+original bytes.
 
 ## What it does
 

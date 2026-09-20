@@ -50,7 +50,7 @@ async function recordHistory(result) {
   await chrome.storage.local.set({ history: history.slice(0, 25) })
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'scan-email') {
     analyze(message.rawBase64, message.expectedBackend)
       .then(async result => { await recordHistory(result); sendResponse({ ok: true, result }) })
@@ -59,6 +59,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.type === 'get-backend-url') {
     getBackendUrl().then(backendUrl => sendResponse({ backendUrl }))
+    return true
+  }
+  if (message.type === 'get-ik') {
+    // Gmail's per-session token (GM_ID_KEY / GLOBALS[9]) lives only in the page's
+    // MAIN-world globals, which a content script's isolated world can't read. Read
+    // it with a browser-injected MAIN-world function -- not a page <script>, so
+    // Gmail's CSP can't block it. Needs the "scripting" permission + host access.
+    // Gmail internals are undocumented; verify these globals against live Gmail.
+    const tabId = sender.tab && sender.tab.id
+    if (tabId == null) { sendResponse({ ik: null }); return false }
+    chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        const ok = v => typeof v === 'string' && /^[A-Za-z0-9_-]{6,}$/.test(v)
+        try { if (ok(window.GM_ID_KEY)) return window.GM_ID_KEY } catch (e) {}
+        try { const g = window.GLOBALS; if (Array.isArray(g) && ok(g[9])) return g[9] } catch (e) {}
+        return null
+      }
+    }).then(res => sendResponse({ ik: (res && res[0] && res[0].result) || null }))
+      .catch(() => sendResponse({ ik: null }))
     return true
   }
   return false

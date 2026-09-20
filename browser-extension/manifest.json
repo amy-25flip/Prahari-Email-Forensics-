@@ -3,7 +3,7 @@
   "name": "Gmail Guard - Email Threat Detection",
   "version": "0.1.0",
   "description": "Automatically scans opened Gmail messages against the AI-Powered Email Threat Detection backend and shows a risk banner before you act on the email.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
   "host_permissions": [
     "https://mail.google.com/*",
     "http://localhost/*",

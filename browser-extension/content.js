@@ -39,9 +39,52 @@ function rpc(message) {
   })
 }
 
+// Gmail's per-session "ik" token, needed to build the original-message URL, is
+// undocumented and its placement drifts between Gmail frontend versions. Try
+// several isolated-world-readable sources in order; first hit wins. Must be
+// re-verified against live Gmail whenever the markup changes.
+function resolveIk() {
+  const pats = [
+    /"ik"\s*:\s*"([A-Za-z0-9_-]{6,})"/,   // JSON-object style (the classic one)
+    /"ik"\s*,\s*"([A-Za-z0-9_-]{6,})"/,   // array/tuple style
+    /\bGM_ID_KEY\b\s*[:=]\s*["']([A-Za-z0-9_-]{6,})["']/,
+    /[?&]ik=([A-Za-z0-9_-]{6,})/          // an ik carried inside any URL literal
+  ]
+  for (const s of document.scripts) {
+    const t = s.textContent || ''
+    if (!t.includes('ik')) continue
+    for (const re of pats) { const m = t.match(re); if (m) return m[1] }
+  }
+  const el = document.querySelector('[data-ik],[href*="ik="],[src*="ik="],[data-url*="ik="]')
+  if (el) {
+    const direct = el.getAttribute('data-ik')
+    if (direct && /^[A-Za-z0-9_-]{6,}$/.test(direct)) return direct
+    const raw = el.getAttribute('href') || el.getAttribute('src') || el.getAttribute('data-url') || ''
+    const m = raw.match(/[?&]ik=([A-Za-z0-9_-]{6,})/)
+    if (m) return m[1]
+  }
+  return null
+}
+
+// Final fallback: Gmail's ik lives only in the page's main-world globals
+// (window.GM_ID_KEY / GLOBALS[9]), unreachable from this isolated world. Ask the
+// service worker to read it via chrome.scripting in the MAIN world.
+async function ikFromPageWorld() {
+  try {
+    const res = await rpc({ type: 'get-ik' })
+    return res && /^[A-Za-z0-9_-]{6,}$/.test(res.ik || '') ? res.ik : null
+  } catch { return null }
+}
+
+// Gmail's view=om HTML-escapes the raw source inside a <pre>; undo the handful of
+// entities it uses so the reconstructed RFC822 text is faithful for parsing.
+function htmlUnescape(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'").replace(/&#x27;/gi, "'").replace(/&amp;/g, '&')
+}
+
 async function fetchRawSource(id) {
-  const script = [...document.scripts].map(s => s.textContent || '').find(s => /"ik"\s*:\s*"([A-Za-z0-9_-]+)"/.test(s))
-  const ik = script?.match(/"ik"\s*:\s*"([A-Za-z0-9_-]+)"/)?.[1]
+  const ik = resolveIk() || await ikFromPageWorld()
   if (!ik) throw Error('Gmail session token unavailable; Gmail markup may have changed.')
   const url = new URL(accountPath(), location.origin)
   url.search = new URLSearchParams({ ik, view: 'om', permmsgid: id })
@@ -50,21 +93,15 @@ async function fetchRawSource(id) {
   try {
     const response = await fetch(url, { credentials: 'include', signal: controller.signal })
     if (!response.ok) throw Error('Gmail original-message request failed: HTTP ' + response.status)
-    const reader = response.body.getReader()
-    const chunks = []
-    let size = 0
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      size += value.length
-      if (size > 1048576) { await reader.cancel(); throw Error('Email exceeds 1 MiB limit.') }
-      chunks.push(value)
-    }
-    const bytes = new Uint8Array(size)
-    let offset = 0
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-    const prefix = new TextDecoder().decode(bytes.slice(0, 500))
-    if (!/^[A-Za-z0-9-]+:\s/.test(prefix)) throw Error('Gmail did not return original email bytes.')
+    const body = await response.text()
+    // Current Gmail returns an HTML "Original Message" viewer page with the RFC822
+    // source HTML-escaped inside a <pre>, not raw text/plain. Extract and unescape
+    // it; fall back to the body as-is for the old raw-bytes behavior.
+    const pre = body.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)
+    const raw = pre ? htmlUnescape(pre[1]) : body
+    if (!/^[A-Za-z0-9-]+:\s/.test(raw.slice(0, 500))) throw Error('Gmail did not return original email bytes.')
+    const bytes = new TextEncoder().encode(raw)
+    if (bytes.length > 1048576) throw Error('Email exceeds 1 MiB limit.')
     let binary = ''
     for (let i = 0; i < bytes.length; i += 16384) binary += String.fromCharCode(...bytes.subarray(i, i + 16384))
     return btoa(binary)
@@ -79,35 +116,51 @@ function compact(result) {
     } : null }
 }
 
+function el(tag, className, text) {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text != null) node.textContent = text
+  return node
+}
+
 function render(container, key, result, error) {
   const stamp = JSON.stringify([key, result?.id, error])
   const previous = container.querySelector(':scope > .etd-banner')
   if (previous?.dataset.stamp === stamp) return
   previous?.remove()
-  const banner = document.createElement('div')
-  banner.dataset.stamp = stamp
   const priority = result?.triage?.priority
   const tone = error ? 'neutral' : priority === 'urgent' || result.score >= 60 ? 'danger' :
     priority !== 'routine' || result.score >= 25 ? 'warn' : 'good'
-  banner.className = 'etd-banner etd-banner-' + tone
-  const title = document.createElement('strong')
-  title.textContent = error ? 'Gmail Guard: scan unavailable' :
-    'Gmail Guard: ' + (result.triage?.label || result.risk + ' risk') + ' (' + result.score + '/100)'
-  banner.appendChild(title)
-  const details = document.createElement('div')
-  details.className = 'etd-banner-foot'
-  details.textContent = error || result.triage?.action || 'No configured signals is not proof of safety.'
-  banner.appendChild(details)
-  for (const finding of result?.findings || []) {
-    const line = document.createElement('div')
-    line.textContent = finding.title
-    banner.appendChild(line)
+  const banner = el('div', 'etd-banner etd-banner-' + tone)
+  banner.dataset.stamp = stamp
+
+  const head = el('div', 'etd-head')
+  head.appendChild(el('span', 'etd-brand', 'Gmail Guard'))
+  if (!error) {
+    const chip = el('span', 'etd-score')
+    chip.appendChild(el('span', 'etd-score-num', String(result.score)))
+    chip.appendChild(el('span', 'etd-score-max', '/100'))
+    head.appendChild(chip)
   }
+  banner.appendChild(head)
+
+  banner.appendChild(el('div', 'etd-verdict',
+    error ? 'Scan unavailable' : (result.triage?.label || (result.risk + ' risk'))))
+  banner.appendChild(el('div', 'etd-action',
+    error || result.triage?.action || 'No configured signals is not proof of safety.'))
+
+  const findings = result?.findings || []
+  if (findings.length) {
+    const list = el('ul', 'etd-findings')
+    for (const f of findings) list.appendChild(el('li', 'etd-finding', f.title))
+    banner.appendChild(list)
+  }
+
   if (result?.attribution) {
-    const line = document.createElement('div')
-    line.textContent = 'Attribution evidence score: ' + result.attribution.confidence_score + '/100; not proof of identity.'
-    banner.appendChild(line)
+    banner.appendChild(el('div', 'etd-foot',
+      'Attribution evidence ' + result.attribution.confidence_score + '/100 — infrastructure signal, not proof of identity.'))
   }
+
   container.prepend(banner)
 }
 
