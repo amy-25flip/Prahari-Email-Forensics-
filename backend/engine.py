@@ -130,6 +130,47 @@ def extract_attachment(raw, sha256_hex):
     return None
 
 
+def interpret_model(prediction, auth):
+    """Turn the raw content-classifier output into a banded, authentication-aware
+    verdict for display. The evidence engine only treats the model as a strong
+    signal at >=90% phishing probability (triage.high_model_signal), but the raw
+    argmax label reads "PHISHING" for anything over 50%, which overstates a weak
+    signal. A cryptographically authenticated sender (DMARC pass, or DKIM+SPF
+    pass) is not spoofing its domain, so content resemblance alone is much weaker
+    evidence there -- legitimate security/transactional mail is this model's
+    classic false-positive class. The raw label and probability are preserved on
+    the prediction; this only affects how the signal is summarised."""
+    unavailable = {'band': 'unavailable', 'summary': 'Model unavailable', 'authenticated_sender': False, 'note': None}
+    if prediction.get('status') != 'ready':
+        return unavailable
+    pp = prediction.get('phishing_probability')
+    if not isinstance(pp, (int, float)) or isinstance(pp, bool):
+        return unavailable
+    authenticated = (auth.get('dmarc', {}).get('status') == 'pass'
+                     or (auth.get('dkim', {}).get('status') == 'pass' and auth.get('spf', {}).get('status') == 'pass'))
+    note = None
+    if pp < 60:
+        band, summary = 'legitimate', 'Likely legitimate'
+    elif pp < 90:
+        if authenticated:
+            band, summary = 'legitimate', 'Likely legitimate'
+            note = ('Content resembles phishing, but the sender is cryptographically authenticated '
+                    '(DMARC, or DKIM and SPF, pass), which is inconsistent with domain spoofing. '
+                    'Treated as a weak content-similarity signal, not a verdict.')
+        else:
+            band, summary = 'uncertain', 'Uncertain content signal'
+    else:
+        if authenticated:
+            band, summary = 'caution', 'Phishing-like content from an authenticated sender'
+            note = ('Strong content resemblance to phishing from a cryptographically authenticated '
+                    'sender. Domain spoofing is ruled out; review for a possible compromised '
+                    'legitimate account. Uncalibrated content signal.')
+        else:
+            band, summary = 'phishing', 'Likely phishing'
+    return {'band': band, 'summary': summary, 'phishing_probability': pp,
+            'authenticated_sender': authenticated, 'note': note}
+
+
 def analyze(raw, source='upload', live=False, context=None):
     started = time.perf_counter()
     if not raw or len(raw) > MAX_BYTES:
@@ -202,6 +243,7 @@ def analyze(raw, source='upload', live=False, context=None):
         if match: flag('language', title, match[0], 10)
     classifier_text = str(msg.get('Subject')) + '\n' + body
     prediction = ml.classify(classifier_text)
+    prediction['verdict'] = interpret_model(prediction, auth)
     if high_model_signal(prediction):
         flag('language', 'High model phishing probability', 'Independent model evidence; uncalibrated and requires analyst review.', 30)
     # instruction_pattern is matched directly against classifier_text -- the
