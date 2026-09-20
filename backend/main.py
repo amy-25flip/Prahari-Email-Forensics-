@@ -859,6 +859,11 @@ def export(cid: str, fmt: str, request: Request):
     if mode == 'redacted':
         from privacy import redact
         result = redact(result)
+    # DPDP-conscious export masking: reduce exposure of Indian statutory identifiers
+    # (Aadhaar/PAN/UPI/mobile) in every derivative export. The tamper-evident store
+    # keeps the original bytes, so custody is preserved. Best-effort, not certified DLP.
+    import pii
+    result = pii.sanitize_report(result)
     if fmt == 'json': body, mime = json.dumps(result, indent=2, ensure_ascii=True).encode(), 'application/json'
     elif fmt == 'cef': body, mime = siem.cef(result).encode(), 'text/plain'
     elif fmt == 'csv':

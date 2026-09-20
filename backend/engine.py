@@ -1,5 +1,6 @@
 import hashlib
 import ipaddress
+import os
 import re
 import time
 from email import policy
@@ -13,6 +14,8 @@ import reputation
 import domain_intelligence
 import general_detection
 import prompt_injection
+import adversarial
+import pii
 import routing
 from authentication import authenticate
 from geolocation import enrich as enrich_locations
@@ -21,6 +24,7 @@ from triage import assess, high_model_signal
 
 PSL = PublicSuffixList()
 MAX_BYTES = 1024 * 1024
+ADVERSARIAL_DELTA = float(os.getenv('ADVERSARIAL_DELTA', '40'))  # heuristic min prob jump to flag NLP evasion; not a calibrated figure
 
 
 def domain(address):
@@ -247,6 +251,29 @@ def analyze(raw, source='upload', live=False, context=None):
     prediction['verdict'] = interpret_model(prediction, auth)
     if high_model_signal(prediction):
         flag('language', 'High model phishing probability', 'Independent model evidence; uncalibrated and requires analyst review.', 30)
+    # Adversarial-evasion check: only classify a second (normalized) copy when the
+    # raw text actually contains homoglyph/zero-width characters (cheap gate), then
+    # flag a large probability jump as a deliberate attempt to blind the classifier.
+    adversarial_delta = None
+    if adversarial.contains_suspect(classifier_text):
+        normalized = adversarial.skeleton(classifier_text)
+        if normalized != classifier_text:
+            alt = ml.classify(normalized)
+            raw_pp, alt_pp = prediction.get('phishing_probability'), alt.get('phishing_probability')
+            numeric = (prediction.get('status') == 'ready' and alt.get('status') == 'ready'
+                       and isinstance(raw_pp, (int, float)) and not isinstance(raw_pp, bool)
+                       and isinstance(alt_pp, (int, float)) and not isinstance(alt_pp, bool))
+            if numeric:
+                delta = round(alt_pp - raw_pp, 1)
+                flagged = delta >= ADVERSARIAL_DELTA
+                adversarial_delta = {'raw_probability': raw_pp, 'normalized_probability': alt_pp,
+                                     'delta': delta, 'flagged': flagged,
+                                     'detail': 'Phishing probability on the raw text versus a homoglyph/zero-width-normalized copy.'}
+                if flagged:
+                    flag('manipulation', 'Possible adversarial NLP evasion signal',
+                         'Homoglyph/zero-width obfuscation lowers the model phishing probability by '
+                         f'{delta:.0f} points ({alt_pp:.0f}% on normalized text vs {raw_pp:.0f}% raw), '
+                         'consistent with content crafted to evade automated classification.', 25)
     # instruction_pattern is matched directly against classifier_text -- the
     # SAME string just handed to ml.classify() -- so that indicator type is
     # proven to be content the model actually sees. hidden_instruction (an
@@ -298,7 +325,7 @@ def analyze(raw, source='upload', live=False, context=None):
             'conflicts': detect_conflicts(findings, auth, prediction, list(urls.values())),
             'findings': findings, 'ml': prediction, 'authentication': auth, 'urls': list(urls.values()),
             'attachments': attachments, 'hops': hops, 'indicators': indicators, 'geo': geo,
-            'prompt_injection': manipulation,
+            'prompt_injection': manipulation, 'adversarial': adversarial_delta, 'pii': pii.scan(classifier_text),
             'headers': [{'name': k, 'value': str(v)[:4000]} for k, v in list(msg.items())[:100]],
             'origin': 'Unverified', 'coverage': {'completed': 4 + int(auth['dkim']['status'] in ('pass', 'fail')), 'total': 8},
             'limitations': ['Header-reported relays do not identify a human sender.',
