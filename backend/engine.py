@@ -161,10 +161,11 @@ def interpret_model(prediction, auth):
             band, summary = 'uncertain', 'Uncertain content signal'
     else:
         if authenticated:
-            band, summary = 'caution', 'Phishing-like content from an authenticated sender'
-            note = ('Strong content resemblance to phishing from a cryptographically authenticated '
-                    'sender. Domain spoofing is ruled out; review for a possible compromised '
-                    'legitimate account. Uncalibrated content signal.')
+            band, summary = 'caution', 'Authenticated sender — content flagged'
+            note = ('The sending domain is cryptographically authenticated (DMARC, or DKIM and SPF, '
+                    'pass), so this is not domain spoofing. The content resembles phishing, which is '
+                    'common for legitimate security and transactional mail; verify only if the message '
+                    'is unexpected or asks you to act. Uncalibrated content signal.')
         else:
             band, summary = 'phishing', 'Likely phishing'
     return {'band': band, 'summary': summary, 'phishing_probability': pp,

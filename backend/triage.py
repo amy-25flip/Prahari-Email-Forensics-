@@ -4,8 +4,19 @@ import math
 
 def high_model_signal(prediction):
     value = prediction.get('phishing_probability')
-    return (prediction.get('status') == 'ready' and isinstance(value, (int, float))
-            and not isinstance(value, bool) and math.isfinite(value) and 90 <= value <= 100)
+    if not (prediction.get('status') == 'ready' and isinstance(value, (int, float))
+            and not isinstance(value, bool) and math.isfinite(value) and 90 <= value <= 100):
+        return False
+    # A cryptographically authenticated sender (DMARC, or DKIM and SPF, pass) is
+    # not spoofing its domain, so a high content-model score is not strong
+    # phishing evidence on its own. Don't let it add to the evidence score or
+    # force a review verdict by itself -- legitimate security/transactional mail
+    # is this content model's classic false positive. The raw label and
+    # probability stay visible on result['ml']; concrete findings (bad links,
+    # credential pressure, failed auth) still score and escalate independently.
+    if (prediction.get('verdict') or {}).get('authenticated_sender'):
+        return False
+    return True
 
 
 def assess(score, findings, prediction, urls):

@@ -61,3 +61,30 @@ def test_stored_and_exported_review_decision(client):
     exported = client.get(f"/api/cases/{r['id']}/export/json").json()
     assert exported['triage'] == r['triage']
     assert client.get(f"/api/cases/{r['id']}/export/pdf").content.startswith(b'%PDF')
+
+
+def test_high_model_signal_suppressed_for_authenticated_sender():
+    # A high content-model score from a cryptographically authenticated sender is
+    # not strong phishing evidence (no domain spoofing) -- must not count.
+    p = prediction(100)
+    p['verdict'] = {'authenticated_sender': True}
+    assert not high_model_signal(p)
+
+
+def test_high_model_signal_fires_for_unauthenticated_high_probability():
+    p = prediction(100)
+    p['verdict'] = {'authenticated_sender': False}
+    assert high_model_signal(p)
+
+
+def test_high_model_signal_without_verdict_key_is_unaffected():
+    # Legacy path (no verdict on the prediction) keeps the original behavior.
+    assert high_model_signal(prediction(95))
+
+
+def test_authenticated_sender_high_model_does_not_force_review():
+    # With no concrete findings, an authenticated high-content email stays routine
+    # instead of being pushed to "Review required" by the model alone.
+    p = prediction(100)
+    p['verdict'] = {'authenticated_sender': True}
+    assert assess(0, [], p, [])['priority'] == 'routine'
