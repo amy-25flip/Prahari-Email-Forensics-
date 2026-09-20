@@ -363,20 +363,28 @@ def record_failed_message(message_id):
         state = _read_state()
         pending = state.get('pending_retry_message_ids', [])
         for entry in pending:
-            if entry.get('id') == message_id:
+            if isinstance(entry, dict) and entry.get('id') == message_id:
                 entry['attempts'] = entry.get('attempts', 0) + 1
                 break
         else:
             pending.append({'id': message_id, 'attempts': 1})
-        state['pending_retry_message_ids'] = pending[-_MAX_PENDING_RETRY_IDS:]
+        if len(pending) > _MAX_PENDING_RETRY_IDS:
+            dropped = [e.get('id') for e in pending[:-_MAX_PENDING_RETRY_IDS] if isinstance(e, dict)]
+            _logger.warning('Gmail dead-letter queue over capacity (%d > %d); dropping oldest retry id(s): %s',
+                            len(pending), _MAX_PENDING_RETRY_IDS, dropped)
+            pending = pending[-_MAX_PENDING_RETRY_IDS:]
+        state['pending_retry_message_ids'] = pending
         _write_state(state)
 
 
 def pending_retry_message_ids():
-    """Message ids still eligible for a retry (attempt count under the cap)."""
+    """Message ids still eligible for a retry (attempt count under the cap).
+    Ignores any malformed/legacy queue entry so a corrupt state file can't crash
+    the push handler."""
     with _state_lock:
         pending = _read_state().get('pending_retry_message_ids', [])
-    return [e['id'] for e in pending if e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
+    return [e['id'] for e in pending
+            if isinstance(e, dict) and e.get('id') and e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
 
 
 def clear_failed_message(message_id):
@@ -385,7 +393,7 @@ def clear_failed_message(message_id):
     with _state_lock:
         state = _read_state()
         pending = state.get('pending_retry_message_ids', [])
-        remaining = [e for e in pending if e.get('id') != message_id]
+        remaining = [e for e in pending if not (isinstance(e, dict) and e.get('id') == message_id)]
         if len(remaining) != len(pending):
             state['pending_retry_message_ids'] = remaining
             _write_state(state)
@@ -395,13 +403,17 @@ def drain_exhausted_retries():
     """Remove and return the ids that have hit the per-message attempt cap, so the
     caller can log a permanent-failure/give-up event. Keeps the queue bounded even
     when a message stays permanently unreachable (e.g. deleted right after it was
-    first seen) rather than retrying it forever."""
+    first seen) rather than retrying it forever. Also prunes any malformed/legacy
+    entries so they can't crash a later pass."""
     with _state_lock:
         state = _read_state()
         pending = state.get('pending_retry_message_ids', [])
-        exhausted = [e['id'] for e in pending if e.get('attempts', 0) >= _MAX_RETRY_ATTEMPTS]
-        if exhausted:
-            state['pending_retry_message_ids'] = [e for e in pending if e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
+        exhausted = [e['id'] for e in pending
+                     if isinstance(e, dict) and e.get('id') and e.get('attempts', 0) >= _MAX_RETRY_ATTEMPTS]
+        kept = [e for e in pending
+                if isinstance(e, dict) and e.get('id') and e.get('attempts', 0) < _MAX_RETRY_ATTEMPTS]
+        if len(kept) != len(pending):
+            state['pending_retry_message_ids'] = kept
             _write_state(state)
         return exhausted
 

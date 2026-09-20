@@ -166,6 +166,10 @@ def test_cleanup_expired_sessions_and_capacity(client, monkeypatch):
 
 def test_storage_quota_and_stateless_health(client, monkeypatch):
     monkeypatch.setattr(store, 'MAX_STORAGE', 1)
-    assert client.post('/api/samples/account', headers=HEADERS).status_code == 400
+    # A full store is a TRANSIENT capacity condition, not a bad request: the email
+    # is valid, there's just no room right now. It surfaces as 503 so the Gmail
+    # push pipeline dead-letters and retries it instead of dropping a good email
+    # as permanently unprocessable.
+    assert client.post('/api/samples/account', headers=HEADERS).status_code == 503
     assert client.get('/api/health').headers.get('set-cookie') is None
     assert client.get('/api/ready').status_code == 503

@@ -912,3 +912,115 @@ def test_gmail_403_rate_limit_is_transient_but_other_403_is_permanent():
     assert main._gmail_httperror_is_transient(403, err(403, b'{"error":{"errors":[{"reason":"domainPolicy"}]}}')) is False
     assert main._gmail_httperror_is_transient(404, err(404, b'')) is False
     assert main._gmail_httperror_is_transient(None, err(0, b'')) is False
+
+
+# --- Regression tests for the 2026-09-20 review fixes (Gmail push robustness) ---
+
+def test_push_generic_exception_is_retried_then_recovers(client, monkeypatch, tmp_path):
+    # Regression (critical): a NON-HTTP error from fetch/execute -- a socket
+    # timeout, dropped connection, sqlite 'database locked', etc. -- previously
+    # escaped the retry loop entirely, skipped the unclaim, left the id claimed
+    # on disk, and permanently lost the email. It is now transient: retried
+    # within budget, and here it recovers on the third attempt.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['glitchy'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    attempts = {'n': 0}
+    raw = b'From: a@b.com\r\nTo: c@d.com\r\nSubject: recovered\r\n\r\nbody'
+    def fetch_raw(message_id):
+        attempts['n'] += 1
+        if attempts['n'] < 3:
+            raise ConnectionResetError('connection reset by peer')
+        return raw
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '91'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 1
+    assert attempts['n'] == 3
+
+
+def test_push_generic_exception_is_dead_lettered_and_unclaimed(client, monkeypatch, tmp_path):
+    # Regression (critical): if that transient non-HTTP error persists past the
+    # in-request retry budget, the message must be (a) unclaimed so a later
+    # attempt isn't wrongly rejected as already-claimed, and (b) durably queued
+    # in the dead-letter retry queue -- NOT silently dropped.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['stuck'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    def fetch_raw(message_id):
+        raise TimeoutError('read timed out')
+    monkeypatch.setattr(gi, 'fetch_raw', fetch_raw)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '92'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 0
+    assert gi.claim_processed('stuck')                # was unclaimed -- a fresh claim succeeds
+    gi.unclaim_processed('stuck')                     # undo the probe
+    assert 'stuck' in gi.pending_retry_message_ids()  # durably dead-lettered, not lost
+
+
+def test_push_capacity_limit_is_dead_lettered_not_dropped(client, monkeypatch, tmp_path):
+    # Regression (high): a full store raises a capacity ValueError, now surfaced
+    # as a 503 (transient) rather than a 400 -- so a valid email arriving when the
+    # store is momentarily full is dead-lettered and retried, not misclassified as
+    # permanently unprocessable and dropped.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    def full_store(*a, **k):
+        raise ValueError('Evidence storage capacity reached. Retry after case expiration or deletion.')
+    monkeypatch.setattr(store, 'save', full_store)
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: ['full'])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    monkeypatch.setattr(gi, 'fetch_raw', lambda message_id: b'From: a@b.com\r\nTo: c@d.com\r\nSubject: no room\r\n\r\nbody')
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '93'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    assert response.json()['processed'] == 0
+    assert gi.claim_processed('full')                 # unclaimed, not stuck-claimed
+    gi.unclaim_processed('full')
+    assert 'full' in gi.pending_retry_message_ids()   # dead-lettered for retry
+
+
+def test_dead_letter_skipped_keeps_in_flight_retry_queued(client, monkeypatch, tmp_path):
+    # Regression (high, concurrency): when a dead-letter retry finds the id
+    # already claimed by another in-flight worker (outcome 'skipped'), it must NOT
+    # clear it from the retry queue -- the owning worker is responsible for
+    # clearing on success or re-recording on failure. Clearing here races that
+    # worker and can drop a message it then fails to store.
+    monkeypatch.setattr(store, 'DATA', tmp_path)
+    _configure_push_env(monkeypatch)
+    _mock_valid_token(monkeypatch)
+    gi.record_failed_message('inflight')              # already dead-lettered
+    assert gi.claim_processed('inflight')             # simulate the other worker's live claim
+    monkeypatch.setattr(gi, 'diff_new_message_ids', lambda history_id: [])
+    monkeypatch.setattr(main, '_PUSH_RETRY_DELAY_SECONDS', 0)
+    monkeypatch.setattr(gi, 'advance_watermark', lambda history_id: None)
+    payload = base64.b64encode(json.dumps({'emailAddress': 'a@b.com', 'historyId': '94'}).encode()).decode()
+    response = client.post('/api/gmail/push', json={'message': {'data': payload}}, headers={'Authorization': 'Bearer fake'})
+    assert response.status_code == 200
+    # Still queued: the skipped branch left it for its owner instead of clearing it.
+    assert 'inflight' in gi.pending_retry_message_ids()
+
+
+def test_gmail_403_quota_errors_are_transient():
+    # Regression (medium): Gmail returns rate AND quota limits as HTTP 403; all of
+    # them are retryable. A non-int status must also be tolerated, not treated as
+    # permanent.
+    def err(status, body):
+        resp = type('R', (), {'status': status, 'reason': 'error'})()
+        return HttpError(resp, body)
+    assert main._gmail_httperror_is_transient(403, err(403, b'{"error":{"errors":[{"reason":"quotaExceeded"}]}}'))
+    assert main._gmail_httperror_is_transient(403, err(403, b'dailyLimitExceeded'))
+    assert main._gmail_httperror_is_transient(403, err(403, b'userRateLimitExceeded'))
+    assert not main._gmail_httperror_is_transient(403, err(403, b'domainPolicy'))
+    assert main._gmail_httperror_is_transient('503', err(503, b'server error'))
+    assert main._gmail_httperror_is_transient('429', err(429, b'rate limited'))
+    assert not main._gmail_httperror_is_transient(404, err(404, b'gone'))

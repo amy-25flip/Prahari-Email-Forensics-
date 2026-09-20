@@ -12,7 +12,7 @@ def redact(report):
         'subject': masked, 'sender': masked, 'recipient': masked, 'body': masked,
         'sha256': report['sha256'], 'score': report['score'], 'risk': report['risk'],
         'origin': 'Withheld in redacted export', 'authentication': auth,
-        'ml': {'label': report['ml']['label'], 'detail': 'Local model output; uncalibrated.'},
+        'ml': {'label': (report.get('ml') or {}).get('label', 'unknown'), 'detail': 'Local model output; uncalibrated.'},
         'findings': [{'group': f['group'], 'title': f['title'], 'detail': masked, 'points': f['points']}
                      for f in report['findings']],
         'indicators': [], 'urls': [], 'attachments': [], 'hops': [], 'headers': [],
