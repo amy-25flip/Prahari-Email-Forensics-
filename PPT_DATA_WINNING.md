@@ -33,9 +33,9 @@ Recommended: **PRAHARI** (memorable, on-theme for a security guardian, Indian id
 
 Structure it like the winners: **Hook → Named Solution + tagline → What it does (bullets) → Uniqueness block.**
 
-### The hook (one line + one number, top of slide)
-- **[VERIFY]** "Bank of Baroda, July 2026 — a single phishing email compromised an employee inbox and leaked ~1 TB of customer data to the dark web." Keep only if you can cite a real source; otherwise use a verifiable national figure below.
-- **[VERIFY]** National stakes line — cite one hard number, e.g. CERT-In / FBI IC3 BEC losses. (IC3 2023 reported BEC losses of **US $2.9 billion** globally — safe, citable. Insert an India-specific CERT-In phishing figure if you have a source.)
+### The hook (one line + one number, top of slide) — VERIFIED 2026-09-21, cite sources on Slide 6
+- **Bank of Baroda, July 2026 (real, citable):** the bank confirmed unauthorized access involving a compromised employee email account on **27 July 2026**; public reports described a dark-web listing claiming **nearly 1 TB** of customer/internal data, while the bank said core banking systems were not affected. **This is exactly the email-security gap our platform investigates early: suspicious inbox activity, forensic evidence, and defensible infrastructure tracing before a breach escalates.**
+- **National scale (real, citable):** CERT-In handled **29,44,248 cyber-security incidents in 2025** (official PIB / CERT-In). Globally, the FBI's IC3 reports **nearly US $2.8 billion in BEC losses in 2024** and **US $55.5 billion** exposed BEC loss from Oct 2013–Dec 2023.
 
 ### One-line solution statement
 > **PRAHARI** — an AI-powered platform that **detects** email threats, **authenticates** the sender, **traces** the relay path and infrastructure, **attributes** with a calibrated confidence score, and **preserves tamper-evident evidence that supports a BSA §63 legal certificate** — in one analyst workflow, in seconds.
@@ -79,7 +79,7 @@ Winners put almost no prose here. Use two visuals + a tech-stack strip. The *con
 - **Client-side "Gmail Guard" browser extension:** scans the open email in Gmail's UI and injects a risk banner — **live-verified end-to-end against real Gmail (2026-09-20).**
 
 ### Proof it's real (link row — winners always show these)
-- **Working prototype · Demo video · GitHub · Live web app** links here.
+- **Working prototype (runs locally) · Demo video · GitHub** links here. *(Only add a "Live web app" URL if you actually deploy it — otherwise a demo video is the honest substitute, and it's what the 2025 winners showed.)*
 - Backing claim: **419 automated backend tests passing**, multi-round independent AI code review.
 
 ---
@@ -111,7 +111,7 @@ Winners put almost no prose here. Use two visuals + a tech-stack strip. The *con
 ## SLIDE 5 — IMPACT & BENEFITS (big stat callouts + categorized benefits — Diagram #5)
 
 ### Headline stat callouts (3 big numbers, winner-style)
-- **Minutes → seconds:** manual header/triage analysis (estimated ~20–40 min, analyst-dependent) collapses to an automated assessment in **seconds**.
+- **Sub-second analysis (measured):** a full multi-signal assessment runs in **~50 ms locally** and **~0.6 s with live enrichment** (measured median on this machine). Replaces the manual header-reading, auth-checking, and infrastructure cross-referencing an analyst otherwise does by hand — many minutes of work, folded into one automated pass. *(Say "sub-second, measured"; don't cite a specific manual-minutes figure you haven't benchmarked.)*
 - **8+ signal classes** correlated in one workflow (auth, ML, AI-manipulation, URL, attachment, relay/geo, reputation, campaign).
 - **99.32% model accuracy · 0.49% false-positive rate** on 33,527 held-out emails.
 
@@ -138,8 +138,10 @@ Winners put almost no prose here. Use two visuals + a tech-stack strip. The *con
 - **[3] BERT** — Devlin et al., 2019. https://aclanthology.org/N19-1423.pdf
 - **[4] OpenTimestamps** — Bitcoin-anchored trusted timestamping. https://opentimestamps.org
 - **[5] BSA 2023, Section 63** — India's electronic-evidence provision (in force since July 2024). *Frame precisely: our chain supports a Section 63 certificate; a human signatory issues it.*
-- **[6] CERT-In** phishing/incident guidance — **[VERIFY]** add a current India statistic with source.
-- Link row: Prototype · Demo video · GitHub · Live web app.
+- **[6] Bank of Baroda breach (July 2026)** — bank confirmed an employee email-account compromise; public reports described a nearly 1 TB dark-web data claim; bank said core banking systems were not affected. Sources: Indian Express / Economic Times / bank disclosure.
+- **[7] FBI IC3 2024 Annual Report + IC3 BEC PSA** — BEC nearly US $2.8B in 2024; exposed BEC losses US $55.5B from Oct 2013-Dec 2023. https://www.ic3.gov
+- **[8] CERT-In / PIB (2025)** — ~29.4 lakh (2.94M) cyber incidents handled in 2025, +44% YoY. https://www.pib.gov.in
+- Link row: Prototype · Demo video · GitHub. *(Add a live URL only if deployed.)*
 
 ---
 

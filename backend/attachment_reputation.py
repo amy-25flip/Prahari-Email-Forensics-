@@ -10,6 +10,7 @@ import threading
 import time
 import requests
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
 
 SOURCE = 'https://www.virustotal.com/api/v3/files/'
@@ -196,16 +197,33 @@ def analysis_status(analysis_id):
 
 
 def enrich(attachments, enabled):
+    """Look up every attachment hash's VirusTotal reputation.
+
+    Each network call has its own (3, 10) connect/read timeout, and VirusTotal's
+    free tier can genuinely be slow, not just erroring -- so looping the (up to
+    MAX_PER_ANALYSIS) real lookups one after another can stack up to 10s times
+    the attachment count with zero overlap, dominating total analysis time on an
+    email with several attachments. Every other enrichment module (geolocation,
+    ip_reputation, domain_intelligence) already parallelizes its per-item network
+    calls with a ThreadPoolExecutor; this one didn't, which was a real latent
+    performance bug, not a rate-limit issue. Fixed by dispatching the actual
+    lookups concurrently while keeping cache-hit/budget-exceeded decisions (and
+    result order) identical to the sequential version."""
     hashes = list(dict.fromkeys(a['sha256'] for a in attachments if a.get('size')))
     if not enabled or not config():
         detail = 'Attachment reputation lookup not enabled.' if not enabled else 'VIRUSTOTAL_API_KEY not configured.'
         return [{'sha256': h, 'status': 'disabled', 'detail': detail} for h in hashes]
-    checked,uncached=[],0
-    for h in hashes:
-        with _lock: cached=h in _cache and _cache[h][0]>time.time()
-        if cached or uncached<MAX_PER_ANALYSIS:
-            checked.append(lookup_hash(h))
-            if not cached:uncached+=1
+    to_lookup, results, uncached = [], [None] * len(hashes), 0
+    for i, h in enumerate(hashes):
+        with _lock: cached = h in _cache and _cache[h][0] > time.time()
+        if cached or uncached < MAX_PER_ANALYSIS:
+            to_lookup.append((i, h))
+            if not cached: uncached += 1
         else:
-            checked.append({'sha256':h,'status':'not_checked','detail':'Per-analysis uncached lookup budget exceeded; attachment not checked.'})
-    return checked
+            results[i] = {'sha256': h, 'status': 'not_checked',
+                          'detail': 'Per-analysis uncached lookup budget exceeded; attachment not checked.'}
+    if to_lookup:
+        with ThreadPoolExecutor(max_workers=max(1, MAX_PER_ANALYSIS)) as pool:
+            for (i, _), result in zip(to_lookup, pool.map(lambda item: lookup_hash(item[1]), to_lookup)):
+                results[i] = result
+    return results
