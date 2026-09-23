@@ -52,6 +52,60 @@ def test_multiple_signatures_any_valid(signed_mail):
     assert result['dkim']['status'] == result['dmarc']['status'] == 'pass'
     assert len(result['dkim']['signatures']) == 2
 
+def _dmarc_only_at(monkeypatch, domain_with_record, record_text):
+    """Mocks DNS TXT resolution so ONLY `domain_with_record` has a DMARC
+    record (the given raw record text); every other queried name raises
+    NXDOMAIN, matching how the real tree-walk naturally fails to find a
+    record at an intermediate subdomain before reaching an ancestor."""
+    class TXT:
+        strings = [record_text.encode('ascii')]
+
+    def resolve(name, *args, **kwargs):
+        if name == '_dmarc.' + domain_with_record:
+            return [TXT()]
+        raise auth.dns.resolver.NXDOMAIN()
+    monkeypatch.setattr(auth.dns.resolver, 'resolve', resolve)
+
+
+def test_published_policy_uses_sp_for_a_subdomain_relying_on_the_organizational_record(monkeypatch):
+    # Regression: RFC 7489 SS6.6.3 -- when a sender's exact domain has no
+    # DMARC record of its own and the organizational domain's record is used
+    # instead, the ORG record's 'sp' tag (if present) is the effective policy
+    # for that subdomain, not 'p'. Reporting 'p' unconditionally misrepresents
+    # e.g. p=reject; sp=quarantine as "reject" for genuine subdomain mail the
+    # publisher explicitly meant to only quarantine -- misleading evidence in
+    # a forensics report, even though it never changed the pass/fail verdict
+    # itself (that depends only on alignment).
+    _dmarc_only_at(monkeypatch, 'example.org', 'v=DMARC1; p=reject; sp=quarantine')
+    raw = b'From: Analyst <person@mail.example.org>\r\nSubject: Test\r\n\r\nHello\r\n'
+    result = check(raw)
+    assert result['dmarc']['policy_domain'] == 'example.org'
+    assert result['dmarc']['published_policy'] == 'quarantine'
+
+
+def test_published_policy_uses_p_when_the_record_belongs_to_the_authors_own_domain(monkeypatch):
+    # Sanity/non-regression companion: when the sender's OWN exact domain has
+    # its own DMARC record (with or without an 'sp' tag), 'p' applies
+    # directly -- 'sp' is irrelevant to a domain's own record, only to
+    # subdomains relying on an ancestor's record.
+    _dmarc_only_at(monkeypatch, 'example.org', 'v=DMARC1; p=reject; sp=quarantine')
+    raw = b'From: Analyst <person@example.org>\r\nSubject: Test\r\n\r\nHello\r\n'
+    result = check(raw)
+    assert result['dmarc']['policy_domain'] == 'example.org'
+    assert result['dmarc']['published_policy'] == 'reject'
+
+
+def test_published_policy_falls_back_to_p_when_a_subdomain_org_record_has_no_sp(monkeypatch):
+    # If the ancestor record has no 'sp' tag at all, RFC 7489 says 'p' is
+    # still the correct fallback for the subdomain -- tags.get('sp', tags['p'])
+    # must degrade gracefully, not KeyError or report something wrong.
+    _dmarc_only_at(monkeypatch, 'example.org', 'v=DMARC1; p=quarantine')
+    raw = b'From: Analyst <person@mail.example.org>\r\nSubject: Test\r\n\r\nHello\r\n'
+    result = check(raw)
+    assert result['dmarc']['policy_domain'] == 'example.org'
+    assert result['dmarc']['published_policy'] == 'quarantine'
+
+
 def test_tree_boundaries_and_limit():
     calls = []
     def txt(name):

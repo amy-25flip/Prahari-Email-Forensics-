@@ -5,11 +5,16 @@
 **/.pytest_cache
 **/data
 **/dist
-# Multi-GB fine-tuned model checkpoints/optimizer state -- never copied into the
-# image (serve_local.py points MODEL_ID at this only for local dev), but without
-# this a local `docker build .` from this workspace still uploads it as build
-# context, causing very slow builds or a context-size failure.
-training/output
+# Multi-GB intermediate training checkpoints/optimizer state -- never copied
+# into the image, or the build context balloons to multiple GB / a slow or
+# failing build. The final trained model (training/output/*/final/) IS now
+# copied into the image by the Dockerfile (it's the team's own real model,
+# not the generic pretrained one) -- Docker's .dockerignore negation cannot
+# re-include a path whose PARENT directory is itself excluded, so this must
+# stay scoped to just the checkpoints subdirectory, not the whole
+# training/output tree, or the Dockerfile's COPY of final/ would silently
+# fail to find its source.
+training/output/*/checkpoints
 **/*.log
 **/*.err
 test.eml

@@ -96,15 +96,32 @@ def test_blank_but_present_subject_is_accepted():
     assert result['subject'] == ''
 
 
-def test_missing_subject_header_entirely_is_still_rejected():
+def test_subject_header_entirely_absent_is_accepted_not_rejected():
+    # Regression: Subject is optional per RFC 5322 (Section 3.6, occurs 0-or-1
+    # times), not just legitimately blank but legitimately ABSENT. An earlier
+    # version of this validation fixed the "present but blank" case (see
+    # test_blank_but_present_subject_is_accepted above) but still wrongly
+    # rejected an email with NO Subject header at all -- exactly the kind of
+    # malformed/minimal content a forensics tool must be able to analyze, not
+    # refuse outright. A completely absent header must normalize to '', same
+    # as an explicitly blank one, not raise and not literally embed the
+    # string "None".
     raw = b'From: user@example.org\r\n\r\nHello\r\n'
-    with pytest.raises(ValueError, match='From and Subject'):
+    result = engine.analyze(raw)
+    assert result['subject'] == ''
+
+
+def test_missing_from_header_is_still_rejected():
+    # From has no legitimate empty/absent case (unlike Subject) -- a
+    # blank/missing sender is not a real, deliverable email.
+    raw = b'Subject: Hello\r\n\r\nBody text.\r\n'
+    with pytest.raises(ValueError, match='From'):
         engine.analyze(raw)
 
 
 def test_blank_from_is_still_rejected():
     raw = b'From: \r\nSubject: Hello\r\n\r\nBody\r\n'
-    with pytest.raises(ValueError, match='From and Subject'):
+    with pytest.raises(ValueError, match='From'):
         engine.analyze(raw)
 
 

@@ -163,7 +163,19 @@ def authenticate(msg, raw, live, source, context=None):
             result['dmarc'].update(status='unknown' if lookup.invalid else 'none', detail='Invalid or ambiguous DMARC configuration encountered.' if lookup.invalid else 'No applicable valid DMARC policy found in current DNS.')
             return result
         policy_domain, tags, record = policy
-        result['dmarc'].update(policy_domain=policy_domain, record=record, published_policy=tags['p'], standard='RFC 9989 DNS tree walk', detail='Alignment evaluated against current DNS, not delivery-time DNS.')
+        # RFC 7489 SS6.6.3: when the returned record belongs to an ANCESTOR
+        # domain (policy_domain != author -- author had no DMARC record of
+        # its own, so the organizational/PSD record above it was used), the
+        # 'sp' tag (if present) is the effective policy for that subdomain,
+        # not 'p' -- 'p' only applies directly when the record was found at
+        # author's own exact domain. Using tags['p'] unconditionally here
+        # misreported e.g. p=reject; sp=quarantine as "reject" for genuine
+        # subdomain mail that the publisher explicitly meant to quarantine,
+        # not reject -- misleading evidence for an analyst reading this field,
+        # even though it never changed the computed pass/fail/unknown verdict
+        # above (that only depends on alignment, not the policy tag's value).
+        effective_policy = tags.get('sp', tags['p']) if policy_domain != author else tags['p']
+        result['dmarc'].update(policy_domain=policy_domain, record=record, published_policy=effective_policy, standard='RFC 9989 DNS tree walk', detail='Alignment evaluated against current DNS, not delivery-time DNS.')
         spf_aligned = result['spf']['status'] == 'pass' and lookup.aligned(result['spf']['domain'], author, tags.get('aspf', 'r'))
         dkim_aligned = any(c['status'] == 'pass' and lookup.aligned(c['domain'], author, tags.get('adkim', 'r')) for c in checks)
         if not spf_aligned and result['spf']['status'] in ('unknown', 'temperror'): spf_aligned = None

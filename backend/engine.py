@@ -183,16 +183,17 @@ def analyze(raw, source='upload', live=False, context=None):
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError('Email must be between 1 byte and 1 MiB.')
     msg = BytesParser(policy=policy.default).parsebytes(raw)
-    # Subject is optional per RFC 5322 and commonly sent blank -- msg.get()
-    # returns '' (falsy) for a present-but-empty header and None only when
-    # the header is genuinely absent, so `not msg.get('Subject')` wrongly
-    # rejected a real, legitimately blank-subject email as malformed.
-    # Confirmed live: a real Gmail-push email with Subject: <empty> was
-    # permanently dropped by this check. From has no such legitimate empty
-    # case (a blank sender is not a real, deliverable email), so it keeps
-    # the stricter truthiness check.
-    if not msg.get('From') or msg.get('Subject') is None:
-        raise ValueError('Include at least From and Subject headers in a raw email.')
+    # Subject is OPTIONAL per RFC 5322 (Section 3.6, occurs 0-or-1 times) --
+    # not just legitimately blank, but legitimately ABSENT entirely. An
+    # earlier fix already handled "present but blank" (msg.get() returns ''
+    # there, not None) but still rejected a genuinely absent Subject header,
+    # which real (if unusual) mail -- and exactly the kind of malformed or
+    # minimal content a forensics tool must be ABLE to analyze, not refuse --
+    # can legitimately have. From has no such legitimate empty/absent case (a
+    # blank/missing sender is not a real, deliverable email), so it keeps the
+    # stricter truthiness check.
+    if not msg.get('From'):
+        raise ValueError('Include at least a From header in a raw email.')
     attachments, texts, html_links, html_sources, qr_urls = [], [], [], [], []
     for i, part in enumerate(msg.walk()):
         if i > 100: raise ValueError('Email has too many MIME parts (maximum 100).')
@@ -262,7 +263,11 @@ def analyze(raw, source='upload', live=False, context=None):
                            ('Verification avoidance', r'(do not (call|contact)|bypass.{0,25}approval|keep this confidential)')]:
         match = re.search(pattern, body, re.I | re.S)
         if match: flag('language', title, match[0], 10)
-    classifier_text = str(msg.get('Subject')) + '\n' + body
+    # str(None) would literally embed the 4-character string "None" into
+    # classifier input and the stored subject field for a genuinely
+    # subject-less email -- normalize a truly absent header to '', the same
+    # as an explicitly blank one, rather than a surprise literal word.
+    classifier_text = str(msg.get('Subject') or '') + '\n' + body
     prediction = ml.classify(classifier_text)
     prediction['verdict'] = interpret_model(prediction, auth)
     if high_model_signal(prediction):
@@ -351,7 +356,7 @@ def analyze(raw, source='upload', live=False, context=None):
         if a['size']: indicators.append({'type': 'attachment_hash', 'value': a['sha256']})
     geo = enrich_locations(hops, live)
     finding_ids.assign(findings, 'group')
-    return {'subject': str(msg.get('Subject'))[:500], 'sender': str(msg.get('From'))[:500], 'recipient': str(msg.get('To', ''))[:500],
+    return {'subject': str(msg.get('Subject') or '')[:500], 'sender': str(msg.get('From'))[:500], 'recipient': str(msg.get('To', ''))[:500],
             'date': str(msg.get('Date', 'Unknown')), 'body': body, 'sha256': hashlib.sha256(raw).hexdigest(),
             'source': source, 'score': score, 'risk': 'High' if score >= 60 else 'Review' if score >= 25 else 'Low',
             'score_policy': 'evidence-v2; grouped heuristic, not fraud probability', 'groups': groups,

@@ -9,16 +9,17 @@ FROM python:3.12-slim
 WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt
-ENV HF_HOME=/opt/model-cache HF_HUB_DISABLE_PROGRESS_BARS=1
-# This repo ships weights as pytorch_model.bin, not .safetensors (confirmed via
-# HfApi().list_repo_files() -- do not assume a HF repo has safetensors available).
-# Missing '*.bin' here silently downloaded everything except the actual model
-# weights and only surfaced as a runtime OSError on first real deployment.
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('ealvaradob/bert-finetuned-phishing', allow_patterns=['*.json','*.txt','*.safetensors','*.bin'])"
+# Ship the TEAM'S OWN fine-tuned checkpoint (99.32% held-out test accuracy --
+# see training_report.json alongside the weights), not a generic pretrained
+# public model. An earlier version of this Dockerfile instead downloaded
+# ealvaradob/bert-finetuned-phishing from the Hugging Face Hub and never set
+# MODEL_ID, so a built image silently served that pretrained model in place
+# of the real one this project trains and reports metrics for.
+COPY training/output/phishing-bert-v1/final/ /opt/model/phishing-bert-v1/
 COPY backend/ ./
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
-RUN useradd --uid 1000 --create-home appuser && mkdir /data && chown appuser /data && chmod -R a+rX /opt/model-cache
-ENV DATA_DIR=/data COOKIE_SECURE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PORT=8000
+RUN useradd --uid 1000 --create-home appuser && mkdir /data && chown appuser /data && chmod -R a+rX /opt/model
+ENV DATA_DIR=/data COOKIE_SECURE=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PORT=8000 MODEL_ID=/opt/model/phishing-bert-v1
 USER appuser
 EXPOSE 8000
 # /api/ready (not /api/health) -- /api/health always reports status:ready
