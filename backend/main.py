@@ -82,6 +82,53 @@ slots = threading.BoundedSemaphore(2)
 rate_lock = threading.Lock()
 peer_limiter = PeerLimiter()
 
+# X-Forwarded-For is client-controllable and NOT trusted by default -- a
+# request.client.host of the real TCP peer is safe from spoofing, but behind
+# a real reverse proxy it is always the PROXY's own address, so every real
+# user shares one rate-limit bucket. TRUSTED_PROXY_HOPS is an explicit,
+# opt-in escape hatch: set it to the exact number of reverse proxies known to
+# sit in front of this app (each of which faithfully APPENDS, never
+# replaces, the peer address it observed) to recover the real per-client
+# identity safely. Left at the default 0, behavior is UNCHANGED from before
+# this fix -- see test_peer_limit_cannot_be_reset_with_cookie_or_forwarded_header,
+# which deliberately proves the header is ignored by default.
+TRUSTED_PROXY_HOPS = int(os.getenv('TRUSTED_PROXY_HOPS', '0'))
+# Codex review (Medium): TRUSTED_PROXY_HOPS alone trusted X-Forwarded-For
+# from ANY direct connection once set, with no check on who actually made
+# that connection -- an attacker reaching this app directly (a network
+# misconfiguration, or the app being reachable on a path the real proxy
+# doesn't front) could set an arbitrary XFF and freely rotate their own
+# rate-limit identity. TRUSTED_PROXY_IPS closes that: XFF is only ever
+# consulted when request.client.host (the real, non-spoofable direct TCP
+# peer) is itself one of these known, explicitly-configured proxy addresses.
+# Left empty (the default), XFF is NEVER trusted, even if TRUSTED_PROXY_HOPS
+# is set -- fails closed, matching this codebase's existing convention for
+# every other "explicitly configured, else safe default" setting.
+TRUSTED_PROXY_IPS = {ip.strip() for ip in os.getenv('TRUSTED_PROXY_IPS', '').split(',') if ip.strip()}
+
+
+def peer_identity(request):
+    """The identity used for peer rate-limiting. With TRUSTED_PROXY_HOPS=0
+    (default) or an unrecognized direct peer, this is exactly
+    request.client.host, ignoring any client-supplied header entirely. Only
+    when BOTH TRUSTED_PROXY_HOPS>=1 AND the direct peer is listed in
+    TRUSTED_PROXY_IPS does it take the entry N positions from the RIGHT of
+    X-Forwarded-For -- the standard trusted-proxy convention: a client can
+    prepend arbitrary fake entries to its own request, but each real trusted
+    hop only ever APPENDS what it itself observed, so the last N entries are
+    exactly the N real hops regardless of what the client tried to prepend.
+    Falls back to request.client.host if the header is absent or has fewer
+    entries than expected (a misconfigured/missing proxy must not silently
+    trust attacker input)."""
+    direct = request.client.host if request.client else 'unknown'
+    if TRUSTED_PROXY_HOPS <= 0 or direct not in TRUSTED_PROXY_IPS:
+        return direct
+    forwarded = request.headers.get('x-forwarded-for', '')
+    parts = [p.strip() for p in forwarded.split(',') if p.strip()]
+    if len(parts) < TRUSTED_PROXY_HOPS:
+        return direct
+    return parts[-TRUSTED_PROXY_HOPS]
+
 
 @app.middleware('http')
 async def boundary(request: Request, call_next):
@@ -98,7 +145,7 @@ async def boundary(request: Request, call_next):
     # 503 every real user with zero POSTs involved. Gate every real API route
     # (not health/ready, not push, not static asset serving) uniformly.
     if not push and request.url.path.startswith('/api/') and request.url.path not in ('/api/health', '/api/ready'):
-        peer = request.client.host if request.client else 'unknown'
+        peer = peer_identity(request)
         if not peer_limiter.allow(peer):
             return JSONResponse({'detail': 'Peer request limit reached. Retry in one minute.'}, status_code=429, headers={'Retry-After':'60'})
     if request.method == 'POST':
@@ -128,12 +175,48 @@ async def boundary(request: Request, call_next):
     return response
 
 
+# img-src's tile.openstreetmap.org: the ONLY external resource the built
+# frontend actually loads (RelayMap.jsx's Leaflet tile layer, confirmed by
+# grepping the frontend source for every https:// reference, not guessed) --
+# exact hostname, not a *.tile.openstreetmap.org wildcard, since the app
+# requests that single host directly with no {s} subdomain placeholder.
+# style-src allows 'unsafe-inline': Codex review (Medium) -- React's own
+# inline style={{...}} props and Leaflet's runtime marker/tile positioning
+# rely on inline styling, and 'self'-only style-src risked silently breaking
+# the map (verified an img-src tile itself loads fine, but that alone
+# doesn't prove Leaflet's own style-attribute manipulation isn't blocked).
+# This is a standard, low-risk tradeoff: CSP's real XSS defense value is in
+# script-src (kept strict, 'self' only), not style-src -- a CSS-only
+# injection is a much lower-severity class of attack than script injection,
+# and this app has no inline-style-based user content rendering that
+# 'unsafe-inline' here would newly expose.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https://tile.openstreetmap.org; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
 @app.middleware('http')
 async def response_security(request: Request, call_next):
     response = await call_next(request)
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Content-Security-Policy'] = CONTENT_SECURITY_POLICY
+    # Only ever sent when the deployer has explicitly asserted the app is
+    # served over HTTPS (the SAME COOKIE_SECURE flag already gates the
+    # session cookie's own Secure attribute above) -- sending HSTS over
+    # plain HTTP, or when HTTPS isn't guaranteed, risks the browser
+    # REFUSING to connect at all until the policy's max-age expires, a far
+    # worse failure mode than simply not having the header.
+    if os.getenv('COOKIE_SECURE') == '1':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     if request.url.path.startswith('/api/'): response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -950,11 +1033,28 @@ def export(cid: str, fmt: str, request: Request):
     elif fmt == 'pdf':
         from fpdf import FPDF
         pdf = FPDF()
+        # Regression: the core 'Helvetica' PDF font only supports Latin-1, so
+        # every non-Latin-1 character (Hindi/Devanagari script, most emoji,
+        # many other scripts) was forced through .encode('latin-1','replace')
+        # and silently became a literal '?' -- indistinguishable from real
+        # content, in a FORENSIC report. Noto Sans (broad Latin/Cyrillic/
+        # Greek coverage) plus Noto Sans Devanagari (Hindi and related
+        # scripts) are bundled under backend/fonts/ (SIL Open Font License,
+        # OFL.txt alongside them) and used with fallback + real text shaping
+        # instead. Honest scope: this closes the Hindi/Devanagari and
+        # Latin-extended cases specifically; a script neither font covers
+        # (e.g. CJK, Arabic, color emoji) renders as an empty/placeholder
+        # glyph, not a crash and not a misleading '?'.
+        FONT_DIR = Path(__file__).parent / 'fonts'
+        pdf.add_font('NotoSans', '', str(FONT_DIR / 'NotoSans.ttf'))
+        pdf.add_font('NotoSansDevanagari', '', str(FONT_DIR / 'NotoSansDevanagari.ttf'))
+        pdf.set_fallback_fonts(['NotoSansDevanagari'])
+        pdf.set_text_shaping(True)
         pdf.set_auto_page_break(auto=True, margin=18)
         pdf.add_page()
         def line(text, size=10):
-            pdf.set_font('Helvetica', size=size)
-            pdf.multi_cell(0, 6, str(text).encode('latin-1', 'replace').decode('latin-1'), new_x='LMARGIN', new_y='NEXT')
+            pdf.set_font('NotoSans', size=size)
+            pdf.multi_cell(0, 6, str(text), new_x='LMARGIN', new_y='NEXT')
         line('AI-Powered Email Threat Detection', 18)
         line('Redacted Email Forensic Report' if mode == 'redacted' else 'Email Forensic Report', 12)
         line('Case: ' + cid)

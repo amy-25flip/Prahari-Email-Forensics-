@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import axios from 'axios'
+import api from './api'
 
 export default function SandboxSubmit({ caseId, sha256 }) {
   const [state, setState] = useState(null)
@@ -7,7 +7,7 @@ export default function SandboxSubmit({ caseId, sha256 }) {
   async function submit() {
     setBusy(true)
     try {
-      const response = await axios.post(`/api/cases/${caseId}/attachments/${sha256}/sandbox`, {}, { headers: { 'X-Requested-With': 'Email-Threat-Detection' } })
+      const response = await api.post(`/cases/${caseId}/attachments/${sha256}/sandbox`, {})
       setState(response.data)
     } catch (e) { setState({ status: 'error', detail: e.response?.data?.detail || 'Submission failed.' }) }
     finally { setBusy(false) }
@@ -16,7 +16,7 @@ export default function SandboxSubmit({ caseId, sha256 }) {
     if (!state?.analysis_id) return
     setBusy(true)
     try {
-      const response = await axios.post(`/api/attachments/sandbox/${state.analysis_id}`, {}, { headers: { 'X-Requested-With': 'Email-Threat-Detection' } })
+      const response = await api.post(`/attachments/sandbox/${state.analysis_id}`, {})
       setState({ ...response.data, analysis_id: state.analysis_id })
     } catch { setState({ ...state, detail: 'Could not check status.' }) }
     finally { setBusy(false) }

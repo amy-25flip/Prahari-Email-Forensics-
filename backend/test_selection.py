@@ -136,7 +136,35 @@ def test_address_domains_and_url_structures():
     assert engine.base('x.example.co.uk') == 'example.co.uk'
     assert engine.scan_url('https://example.org/news')['score'] == 0
     assert engine.scan_url('http://127.0.0.1/login?next=x')['score'] >= 40
-    assert engine.scan_url('javascript:alert(1)') is None
+
+
+def test_dangerous_url_schemes_are_flagged_not_silently_dropped():
+    # Regression: javascript:/data:/vbscript: URIs can embed or execute
+    # content directly (a fake login page inline in a data: URI, an inline
+    # script via javascript:) -- a fundamentally different risk from a
+    # normal http(s) link. An earlier version returned None for ANY
+    # non-http(s) scheme, silently discarding these from every downstream
+    # check (never appearing in urls, never flagged, never scored).
+    for value in ('javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)'):
+        scanned = engine.scan_url(value)
+        assert scanned is not None, f'{value} was silently dropped'
+        assert scanned['score'] >= 40
+
+
+def test_benign_non_http_schemes_are_still_not_flagged():
+    # mailto:/tel: are common and legitimate in real email (unsubscribe
+    # links, contact info) -- must not become a new false-positive source.
+    assert engine.scan_url('mailto:person@example.org') is None
+    assert engine.scan_url('tel:+1-555-0100') is None
+
+
+def test_html_email_with_a_javascript_link_produces_a_real_finding():
+    raw = (b'From: a@b.com\r\nTo: c@d.com\r\nSubject: Click here\r\n'
+           b'Content-Type: text/html\r\n\r\n'
+           b'<html><body><a href="javascript:alert(document.cookie)">Click to continue</a></body></html>')
+    result = engine.analyze(raw)
+    assert any(f['title'] == 'Suspicious URL structure' for f in result['findings'])
+    assert any(u['protocol'] == 'JAVASCRIPT' for u in result['urls'])
 
 
 def test_forged_authentication_is_not_trusted(client):

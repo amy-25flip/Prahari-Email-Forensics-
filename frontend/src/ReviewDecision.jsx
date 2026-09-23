@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react'
-import axios from 'axios'
+import api from './api'
 import {Check,Pause} from 'lucide-react'
 
 export default function ReviewDecision({caseId}) {
@@ -8,10 +8,10 @@ export default function ReviewDecision({caseId}) {
   const [ack,setAck]=useState(false)
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
-  useEffect(()=>{let active=true;axios.get(`/api/cases/${caseId}/review`).then(r=>{if(active)setState(r.data.decision)}).catch(()=>{if(active)setError('Review status unavailable')});return()=>{active=false}},[caseId])
+  useEffect(()=>{let active=true;api.get(`/cases/${caseId}/review`).then(r=>{if(active)setState(r.data.decision)}).catch(()=>{if(active)setError('Review status unavailable')});return()=>{active=false}},[caseId])
   async function submit(decision) {
     setBusy(true);setError('')
-    try {const r=await axios.post(`/api/cases/${caseId}/review`,{decision,note,acknowledged:ack},{headers:{'X-Requested-With':'Email-Threat-Detection'}});setState(r.data.decision)}
+    try {const r=await api.post(`/cases/${caseId}/review`,{decision,note,acknowledged:ack});setState(r.data.decision)}
     catch(e){setError(e.response?.data?.detail||'Review could not be recorded')}
     finally {setBusy(false)}
   }

@@ -24,6 +24,7 @@ oversights.
 """
 import re
 from html.parser import HTMLParser
+import adversarial
 
 # Each pattern is deliberately narrow (tied to AI/classifier-specific
 # framing, not generic business language) to keep false positives low on
@@ -149,6 +150,16 @@ def _find_instruction(text):
         match = pattern.search(text)
         if match:
             return description, match.group(0).strip()[:120]
+    # Same homoglyph-normalization fallback as the main scan() loop above --
+    # a hidden instruction combined with Cyrillic/Greek homoglyph obfuscation
+    # would otherwise evade detection twice over (hidden AND disguised).
+    if adversarial.contains_suspect(text):
+        normalized = adversarial.skeleton(text)
+        if normalized != text:
+            for pattern, description in INSTRUCTION_PATTERNS:
+                match = pattern.search(normalized)
+                if match:
+                    return description, match.group(0).strip()[:120]
     return None
 
 
@@ -176,6 +187,28 @@ def scan(text, html_sources=()):
         if match:
             indicators.append({'type': 'instruction_pattern', 'description': description,
                                 'excerpt': match.group(0).strip()[:120]})
+    # Regression: instruction patterns were only ever matched against the RAW
+    # text -- a Cyrillic/Greek-homoglyph-substituted instruction (e.g. a
+    # Cyrillic 'р' for Latin 'p') reads identically to a human but never
+    # matched these Latin-letter regexes, evading detection entirely despite
+    # being genuinely present and reaching the classifier unchanged. Reuses
+    # adversarial.py's existing skeleton() normalizer (already built for the
+    # analogous ML-evasion case) rather than inventing a second one. Checked
+    # only when the raw text didn't already match, so a plain-language
+    # instruction is never double-reported.
+    if adversarial.contains_suspect(text):
+        normalized = adversarial.skeleton(text)
+        if normalized != text:
+            raw_matches = {description for _, description in INSTRUCTION_PATTERNS if _.search(text)}
+            for pattern, description in INSTRUCTION_PATTERNS:
+                if description in raw_matches:
+                    continue
+                match = pattern.search(normalized)
+                if match:
+                    indicators.append({'type': 'homoglyph_instruction_pattern',
+                                        'description': f'Homoglyph/zero-width-obfuscated AI-directed instruction '
+                                                        f'pattern, only visible after normalization: {description}',
+                                        'excerpt': match.group(0).strip()[:120]})
 
     zero_width_count = len(_ZERO_WIDTH_RE.findall(text))
     if zero_width_count >= _ZERO_WIDTH_THRESHOLD:

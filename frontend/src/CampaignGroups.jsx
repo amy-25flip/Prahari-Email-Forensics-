@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import api from './api'
 
 export default function CampaignGroups({openCase}) {
   const [data,setData]=useState(null)
   const [query,setQuery]=useState('')
   const [error,setError]=useState('')
-  useEffect(()=>{let active=true;axios.get('/api/campaigns').then(r=>{if(active)setData(r.data)}).catch(()=>{if(active)setError('Campaign evidence unavailable')});return()=>{active=false}},[])
+  useEffect(()=>{let active=true;api.get('/campaigns').then(r=>{if(active)setData(r.data)}).catch(()=>{if(active)setError('Campaign evidence unavailable')});return()=>{active=false}},[])
   if(error)return <p role="alert">{error}</p>
   if(!data)return <p role="status">Loading campaign evidence...</p>
   const groups=data.campaigns.filter(g=>`${g.id} ${g.case_ids.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))

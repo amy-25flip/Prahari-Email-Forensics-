@@ -60,6 +60,33 @@ def test_every_factor_is_always_listed_even_when_not_applied():
     assert set(attribution.FACTOR_WEIGHTS) <= names
 
 
+def test_all_nine_positive_factors_applied_still_caps_at_exactly_100():
+    # Regression (Antigravity-flagged, real fact about the raw table): the
+    # 9 positive FACTOR_WEIGHTS values (35+10+10+10+10+10+10+5+10) sum to
+    # 110, not 100. That is INTENTIONAL headroom, not a bug -- assess()'s own
+    # final = min(100, ...) cap (see attribution.py) is what actually governs
+    # the displayed/exported/consumed confidence_score everywhere in this
+    # app (PDF export, frontend, JSON). This proves that cap actually holds
+    # at the true theoretical maximum, with every one of the 9 positive
+    # factors genuinely triggered at once, not just asserting a loose <=100.
+    report = base_report(
+        authentication={'dmarc': {'status': 'pass', 'spf_aligned': True, 'dkim_aligned': True}},
+        assessment={'origin_evidence': {'confidence': 'authenticated_observation'},
+                    'infrastructure': {'matches': []}, 'ip_reputation': [{'status': 'available', 'anonymization_signal': False}],
+                    'checks': []},
+        domain_intelligence={'registration': {'status': 'available', 'registered_at': '2010-01-01T00:00:00Z'}},
+        geo=[{'status': 'available'}],
+        hops=[{'index': 1}],
+    )
+    report['authentication']['arc'] = {'status': 'pass'}
+    result = attribution.assess(report)
+    applied_positive = [f for f in result['factors'] if f['direction'] == '+' and f['applied']]
+    assert len(applied_positive) == len(attribution.FACTOR_WEIGHTS), \
+        f'expected all 9 positive factors applied, got {[f["factor"] for f in applied_positive]}'
+    assert sum(f['weight'] for f in applied_positive) == 110, 'sanity: the raw sum really is 110'
+    assert result['confidence_score'] == 100, 'the final cap must bring 110 down to exactly 100, never higher'
+
+
 def test_score_never_negative_or_above_100():
     report = base_report(
         assessment={'origin_evidence': {'confidence': 'undetermined'}, 'infrastructure': {'matches': ['1.2.3.4']},

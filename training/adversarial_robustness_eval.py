@@ -33,6 +33,18 @@ attacker with white-box model access, or a real LLM-generated paraphrase,
 could plausibly do meaningfully worse than these fixed, hand-authored
 perturbations.
 
+PRODUCTION STATUS (updated after this script's own findings were acted on):
+this script measures the RAW model's single-window behavior on purpose --
+that is still a meaningful characterization of the underlying checkpoint's
+own limits. But the truncation-shift result below (100% evasion on the
+original 200-row run) is NO LONGER what production actually does:
+backend/local_model.py's classify() now slides overlapping windows across
+the full message specifically to close this gap (see its own module-level
+comment for the design and a real re-verification: 95/100 still detected
+under the identical attack after the fix, up from 0/200 before). Padding and
+keyword-substitution were already near-fully robust (99.5%/100% retained)
+and were not separately mitigated.
+
 Usage:
     python training/adversarial_robustness_eval.py [--sample-size N]
 """

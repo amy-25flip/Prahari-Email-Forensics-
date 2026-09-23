@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import axios from 'axios'
+import api from './api'
 import { Download, Upload, Link2 } from 'lucide-react'
 
 export default function CheckpointTools() {
@@ -11,7 +11,7 @@ export default function CheckpointTools() {
   async function save() {
     setBusy(true)
     try {
-      const response=await axios.get('/api/checkpoint')
+      const response=await api.get('/checkpoint')
       const url=URL.createObjectURL(new Blob([JSON.stringify(response.data,null,2)],{type:'application/json'}))
       const link=document.createElement('a');link.href=url;link.download='email-evidence-checkpoint.json';link.click()
       setTimeout(()=>URL.revokeObjectURL(url),1000)
@@ -24,7 +24,7 @@ export default function CheckpointTools() {
     try {
       if(file.size>4096)throw Error('Checkpoint exceeds size limit')
       const value=JSON.parse(await file.text())
-      const response=await axios.post('/api/checkpoint/verify',value,{headers:{'X-Requested-With':'Email-Threat-Detection'}})
+      const response=await api.post('/checkpoint/verify',value)
       setMessage(`${response.data.valid?'Match':'Not verified'}: ${response.data.detail}`)
     } catch {setMessage('Checkpoint could not be verified. Supply the original checkpoint JSON from this session.')}
     finally {setBusy(false);input.current.value=''}
@@ -32,7 +32,7 @@ export default function CheckpointTools() {
   async function blockchainStamp() {
     setBusy(true)
     try {
-      const response=await axios.post('/api/checkpoint/blockchain-stamp',{},{headers:{'X-Requested-With':'Email-Threat-Detection'}})
+      const response=await api.post('/checkpoint/blockchain-stamp',{})
       const data=response.data
       setProofStatus(`${data.status}: ${data.detail}`)
       if(data.proof){
@@ -49,7 +49,7 @@ export default function CheckpointTools() {
     try {
       if(file.size>16384)throw Error('Proof exceeds size limit')
       const value=JSON.parse(await file.text())
-      const response=await axios.post('/api/checkpoint/blockchain-verify',{sha256:value.sha256,proof:value.proof},{headers:{'X-Requested-With':'Email-Threat-Detection'}})
+      const response=await api.post('/checkpoint/blockchain-verify',{sha256:value.sha256,proof:value.proof})
       setProofStatus(`${response.data.status}: ${response.data.detail}`)
     } catch {setProofStatus('Could not check this proof. Supply the downloaded blockchain-timestamp-proof.json file.')}
     finally {setBusy(false);proofInput.current.value=''}

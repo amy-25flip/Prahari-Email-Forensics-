@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import api from './api'
 import { Send, LoaderCircle } from 'lucide-react'
 
 export default function SiemDelivery({ caseId }) {
@@ -8,14 +8,14 @@ export default function SiemDelivery({ caseId }) {
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     let active = true
-    axios.get('/api/siem').then(r => { if (active) setConfig(r.data) }).catch(() => { if (active) setConfig({enabled:false, mode:'unavailable'}) })
+    api.get('/siem').then(r => { if (active) setConfig(r.data) }).catch(() => { if (active) setConfig({enabled:false, mode:'unavailable'}) })
     return () => { active = false }
   }, [])
   async function send() {
     if (busy) return
     setBusy(true)
     try {
-      const response = await axios.post(`/api/cases/${caseId}/siem`, null, {headers:{'X-Requested-With':'Email-Threat-Detection'},timeout:20000})
+      const response = await api.post(`/cases/${caseId}/siem`, null, {timeout:20000})
       setReceipt(response.data)
     } catch { setReceipt({status:'unknown', detail:'Delivery could not be confirmed. Check the collector before retrying.'}) }
     finally { setBusy(false) }

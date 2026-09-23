@@ -96,7 +96,23 @@ def authenticate(msg, raw, live, source, context=None):
     result = {name: {'status': 'unknown', 'detail': 'External DNS verification disabled.', 'observed_at': observed} for name in ('spf', 'dkim', 'dmarc', 'arc')}
     signatures = msg.get_all('DKIM-Signature', [])
     if not signatures: result['dkim'].update(status='missing', detail='No DKIM signature present.')
-    if not context: result['spf']['detail'] = 'SMTP client IP, MAIL FROM and HELO are not established. Supply receiver context to evaluate SPF.'
+    if not context:
+        if source == 'gmail-push':
+            # Structural, not an oversight: the Gmail API's messages.get
+            # (format=raw) returns only the RFC822 message bytes, never the
+            # original SMTP transaction (connecting IP/MAIL FROM/HELO) --
+            # there is no side channel to recover real envelope data for a
+            # message ingested this way. This is NOT a total authentication
+            # blind spot: DKIM verification and DMARC's DKIM-alignment path
+            # both run unconditionally below (no context needed), so a
+            # gmail-push email can still reach a genuine DMARC 'pass'/'fail'
+            # via DKIM alone -- SPF specifically is the only mechanism that
+            # structurally cannot be evaluated for this ingestion path.
+            result['spf']['detail'] = ('SMTP client IP, MAIL FROM and HELO are not available for Gmail-push-ingested '
+                                        "mail -- the Gmail API's raw message fetch does not expose the original SMTP "
+                                        'transaction. DKIM and DMARC (via DKIM alignment) are still evaluated below.')
+        else:
+            result['spf']['detail'] = 'SMTP client IP, MAIL FROM and HELO are not established. Supply receiver context to evaluate SPF.'
     result['spf']['context_source'] = 'analyst-supplied; not independently authenticated' if context else 'unavailable'
     if context: result['spf']['inputs'] = context
     if not live: return result

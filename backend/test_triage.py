@@ -63,6 +63,31 @@ def test_stored_and_exported_review_decision(client):
     assert client.get(f"/api/cases/{r['id']}/export/pdf").content.startswith(b'%PDF')
 
 
+def test_pdf_export_preserves_hindi_text_not_replaced_with_question_marks(client):
+    # Regression (Antigravity-flagged, real): the core 'Helvetica' PDF font
+    # only supports Latin-1, so every non-Latin-1 character (Hindi/
+    # Devanagari script especially, real for an India-focused platform) was
+    # forced through .encode('latin-1','replace') and silently became a
+    # literal '?' -- indistinguishable from real content in a forensic
+    # report. Fixed by bundling Noto Sans + Noto Sans Devanagari with
+    # fallback + real text shaping (see main.py's export() for fmt=='pdf').
+    pypdf = pytest.importorskip('pypdf')
+    subject = 'सुरक्षा चेतावनी: अपना खाता सत्यापित करें'  # "Security warning: verify your account"
+    raw = ('From: a@b.com\r\nTo: c@d.com\r\nSubject: ' + subject + '\r\n\r\nHello.').encode('utf-8')
+    analyzed = client.post('/api/analyze', content=raw, headers=HEADERS).json()
+    export = client.get(f"/api/cases/{analyzed['id']}/export/pdf")
+    assert export.status_code == 200 and export.content.startswith(b'%PDF')
+
+    import io
+    reader = pypdf.PdfReader(io.BytesIO(export.content))
+    extracted = ''.join(page.extract_text() for page in reader.pages)
+    assert extracted.strip(), 'sanity: PDF text extraction produced nothing at all'
+    # The real assertion: the Devanagari text must survive, not collapse to '?'.
+    assert 'सुरक्षा' in extracted or 'चेतावनी' in extracted, \
+        f'Hindi subject text did not survive PDF export/extraction: {extracted[:300]!r}'
+    assert '???' not in extracted
+
+
 def test_high_model_signal_suppressed_for_authenticated_sender():
     # A high content-model score from a cryptographically authenticated sender is
     # not strong phishing evidence (no domain spoofing) -- must not count.

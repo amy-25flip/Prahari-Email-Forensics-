@@ -76,11 +76,24 @@ async function ikFromPageWorld() {
   } catch { return null }
 }
 
-// Gmail's view=om HTML-escapes the raw source inside a <pre>; undo the handful of
-// entities it uses so the reconstructed RFC822 text is faithful for parsing.
-function htmlUnescape(s) {
-  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'").replace(/&#x27;/gi, "'").replace(/&amp;/g, '&')
+// Regression: an earlier version located the <pre> block with a regex
+// (/<pre[^>]*>([\s\S]*?)<\/pre>/i) and unescaped it with a hand-rolled
+// 5-entity replace. Two real problems with that: (1) the non-greedy regex
+// stops at the FIRST '</pre>'-shaped substring -- if Gmail's own escaping
+// were ever incomplete, or the surrounding viewer page happened to contain
+// that literal text anywhere else, the email would be silently truncated
+// there, hiding whatever came after from every downstream check; (2) the
+// hand-rolled unescaper only covers 5 named/numeric entities, corrupting
+// any other valid HTML entity (e.g. numeric character references for
+// non-ASCII content) instead of decoding it. A real DOMParser -- exactly
+// what Gmail's own page would materialize -- resolves both: it finds the
+// ACTUAL <pre> element via real DOM tree construction (not a first-match
+// string search), and .textContent decodes every standard HTML entity
+// correctly, not just the ones this file happened to enumerate.
+function extractPreText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const pre = doc.querySelector('pre')
+  return pre ? pre.textContent : null
 }
 
 async function fetchRawSource(id) {
@@ -96,9 +109,10 @@ async function fetchRawSource(id) {
     const body = await response.text()
     // Current Gmail returns an HTML "Original Message" viewer page with the RFC822
     // source HTML-escaped inside a <pre>, not raw text/plain. Extract and unescape
-    // it; fall back to the body as-is for the old raw-bytes behavior.
-    const pre = body.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)
-    const raw = pre ? htmlUnescape(pre[1]) : body
+    // it via a real DOM parse (see extractPreText's own comment for why, not a
+    // regex); fall back to the body as-is for the old raw-bytes behavior.
+    const preText = extractPreText(body)
+    const raw = preText != null ? preText : body
     if (!/^[A-Za-z0-9-]+:\s/.test(raw.slice(0, 500))) throw Error('Gmail did not return original email bytes.')
     const bytes = new TextEncoder().encode(raw)
     if (bytes.length > 1048576) throw Error('Email exceeds 1 MiB limit.')

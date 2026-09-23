@@ -76,9 +76,24 @@ class HTMLText(HTMLParser):
             self.links.append(self.stack.pop())
 
 
+# These schemes can carry or execute content directly through the URL
+# itself (an embedded fake login page, inline script) rather than merely
+# pointing at one -- a fundamentally different risk than a normal http(s)
+# link, and worth flagging in its own right rather than silently discarding.
+# Other non-http(s) schemes (mailto:, tel:, ftp:) are common and legitimate
+# in real email (unsubscribe links, contact info) and are not flagged here.
+DANGEROUS_URL_SCHEMES = {'javascript', 'data', 'vbscript'}
+
+
 def scan_url(value, displayed=''):
     try:
         parts = urlsplit(value)
+        scheme = parts.scheme.lower()
+        if scheme in DANGEROUS_URL_SCHEMES:
+            return {'url': value[:4096], 'domain': '', 'protocol': scheme.upper(), 'displayed': displayed[:200],
+                    'reasons': [f'Non-standard "{scheme}:" URL scheme -- can embed or execute content directly '
+                                'rather than merely link to it, bypassing normal destination review'],
+                    'score': 100, 'reputation': 'Not checked', 'length': len(value)}
         raw_host = (parts.hostname or '').lower()
         # A host that fails IDNA encoding (e.g. an empty label like
         # "example..com") is itself a red flag, not a reason to drop the URL
@@ -91,11 +106,11 @@ def scan_url(value, displayed=''):
         except UnicodeError:
             host = raw_host
             malformed_host = True
-        if parts.scheme.lower() not in ('http', 'https') or not host:
+        if scheme not in ('http', 'https') or not host:
             return None
         reasons = general_detection.url_signals(value)
         if malformed_host: reasons.append('Malformed or invalid host encoding')
-        if parts.scheme.lower() == 'http': reasons.append('Unencrypted HTTP')
+        if scheme == 'http': reasons.append('Unencrypted HTTP')
         try:
             ipaddress.ip_address(host)
             reasons.append('IP address used as host')
@@ -310,7 +325,7 @@ def analyze(raw, source='upload', live=False, context=None):
     # result['prompt_injection'] without being added to scored findings.
     manipulation_points = {'instruction_pattern': 25, 'hidden_instruction': 35,
                             'hidden_comment_raw_html_only': 15, 'hidden_content_present': 0,
-                            'zero_width_characters': 15}
+                            'zero_width_characters': 15, 'homoglyph_instruction_pattern': 30}
     for indicator in manipulation['indicators']:
         points = manipulation_points[indicator['type']]
         if points > 0:

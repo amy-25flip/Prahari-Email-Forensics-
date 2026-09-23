@@ -7,6 +7,14 @@ score is auditable rather than a black box.
 """
 from datetime import datetime, timezone
 
+# These 9 positive weights sum to 110, not 100 -- intentional headroom, not
+# a bug: assess()'s own `final = min(100, ...)` cap below is what actually
+# governs the score every consumer sees (PDF export, frontend, JSON export),
+# and is asserted to hold exactly at this true theoretical maximum by
+# test_attribution.py's test_all_nine_positive_factors_applied_still_caps_at_exactly_100.
+# The headroom means a case missing one weaker signal (e.g. geolocation,
+# worth only 5) can still reach a perfect 100 rather than being permanently
+# capped below it for a single unavailable, low-value factor.
 FACTOR_WEIGHTS = {
     'receiver_attested': 35,
     'spf_aligned': 10,

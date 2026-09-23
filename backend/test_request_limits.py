@@ -1,6 +1,17 @@
 from request_limits import PeerLimiter
 from test_selection import client, HEADERS
 
+
+class _FakeClient:
+    def __init__(self, host):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, client_host, headers=None):
+        self.client = _FakeClient(client_host) if client_host else None
+        self.headers = headers or {}
+
 def test_limit_expiry_and_capacity():
     limiter=PeerLimiter(limit=2,window=60,capacity=1)
     assert limiter.allow('a',0)
@@ -45,9 +56,112 @@ def test_health_and_ready_remain_exempt_from_peer_limit(client):
     main.peer_limiter.reset()
 
 
+def test_peer_identity_ignores_forwarded_header_by_default(monkeypatch):
+    # Regression (Antigravity-flagged, real): behind a reverse proxy,
+    # request.client.host is always the PROXY's own address, so every real
+    # user shared one rate-limit bucket. But blindly trusting
+    # X-Forwarded-For instead would be a WORSE, trivially exploitable
+    # rate-limit bypass (a client can set it to anything) -- this is why
+    # trusting it is opt-in (TRUSTED_PROXY_HOPS), not automatic.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 0)
+    request = _FakeRequest('10.0.0.5', {'x-forwarded-for': '1.2.3.4'})
+    assert main.peer_identity(request) == '10.0.0.5'
+
+
+def test_peer_identity_uses_last_entry_with_one_trusted_hop(monkeypatch):
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 1)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'proxy-internal-ip'})
+    request = _FakeRequest('proxy-internal-ip', {'x-forwarded-for': '203.0.113.9'})
+    assert main.peer_identity(request) == '203.0.113.9'
+
+
+def test_peer_identity_ignores_client_prepended_fake_entries_with_one_trusted_hop(monkeypatch):
+    # A malicious client sends its OWN X-Forwarded-For with fake entries; the
+    # ONE real trusted proxy in front of this app still only ever APPENDS
+    # the peer it directly observed, as the LAST entry -- that's the only
+    # position ever trusted, regardless of what the client prepended.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 1)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'proxy-internal-ip'})
+    request = _FakeRequest('proxy-internal-ip', {'x-forwarded-for': 'totally-fake-ip, 203.0.113.9'})
+    assert main.peer_identity(request) == '203.0.113.9'
+
+
+def test_peer_identity_falls_back_to_direct_when_header_has_too_few_entries(monkeypatch):
+    # A misconfigured/missing proxy must not silently trust attacker input
+    # just because SOME header happens to be present.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 2)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'direct-ip'})
+    request = _FakeRequest('direct-ip', {'x-forwarded-for': 'only-one-entry'})
+    assert main.peer_identity(request) == 'direct-ip'
+
+
+def test_peer_identity_falls_back_to_direct_when_header_absent(monkeypatch):
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 1)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'direct-ip'})
+    request = _FakeRequest('direct-ip', {})
+    assert main.peer_identity(request) == 'direct-ip'
+
+
+def test_peer_identity_ignores_xff_from_an_untrusted_direct_peer_even_with_hops_set(monkeypatch):
+    # Regression (Codex Medium): TRUSTED_PROXY_HOPS alone previously trusted
+    # XFF from ANY direct connection once set, with no check on who actually
+    # made it -- an attacker reaching this app directly (bypassing the real
+    # proxy, e.g. a network misconfiguration) could set an arbitrary XFF and
+    # freely rotate their own rate-limit identity. Now XFF is only consulted
+    # when the direct peer is itself a known, explicitly trusted proxy.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 1)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'the.real.proxy.ip'})
+    request = _FakeRequest('attacker-direct-connection', {'x-forwarded-for': 'attacker-forged-identity'})
+    assert main.peer_identity(request) == 'attacker-direct-connection'
+
+
+def test_peer_identity_never_trusts_xff_when_trusted_proxy_ips_is_left_empty(monkeypatch):
+    # The default (fail-closed): even with TRUSTED_PROXY_HOPS set, an empty
+    # TRUSTED_PROXY_IPS means XFF is NEVER trusted, matching this codebase's
+    # existing convention of failing safe on incomplete configuration.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 1)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', set())
+    request = _FakeRequest('any-direct-peer', {'x-forwarded-for': '203.0.113.9'})
+    assert main.peer_identity(request) == 'any-direct-peer'
+
+
 def test_security_headers_on_html_and_errors(client):
     for path in ('/','/api/health','/api/missing'):
         response=client.get(path)
         assert response.headers['x-content-type-options']=='nosniff'
         assert response.headers['x-frame-options']=='DENY'
         if path.startswith('/api/'): assert response.headers['cache-control']=='no-store'
+
+
+def test_csp_header_present_on_every_response(client):
+    # Regression (Antigravity-flagged, real): no Content-Security-Policy at
+    # all was previously sent. img-src explicitly allows tile.openstreetmap.org
+    # -- the ONE external resource the built frontend actually loads
+    # (RelayMap.jsx's Leaflet tile layer) -- verified against the real,
+    # running app that a genuine map tile still loads under this exact
+    # policy, not guessed.
+    for path in ('/', '/api/health', '/api/missing'):
+        csp = client.get(path).headers['content-security-policy']
+        assert "default-src 'self'" in csp
+        assert 'tile.openstreetmap.org' in csp
+        assert "frame-ancestors 'none'" in csp
+
+
+def test_hsts_only_sent_when_cookie_secure_is_explicitly_enabled(client, monkeypatch):
+    import main
+    # Default (no COOKIE_SECURE set) -- must NOT send HSTS. Sending it when
+    # HTTPS isn't guaranteed risks the browser refusing to connect at all
+    # until the policy's max-age expires, a far worse failure than omitting it.
+    monkeypatch.delenv('COOKIE_SECURE', raising=False)
+    assert 'strict-transport-security' not in client.get('/api/health').headers
+
+    monkeypatch.setenv('COOKIE_SECURE', '1')
+    response = client.get('/api/health')
+    assert response.headers['strict-transport-security'] == 'max-age=31536000; includeSubDomains'

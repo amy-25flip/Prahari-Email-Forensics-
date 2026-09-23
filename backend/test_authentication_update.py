@@ -11,8 +11,8 @@ from test_selection import client, HEADERS
 RAW = b'From: Analyst <person@example.org>\r\nSubject: Test\r\n\r\nHello\r\n'
 CONTEXT = {'client_ip': '8.8.8.8', 'mail_from': 'person@example.org', 'helo': 'mail.example.org'}
 
-def check(raw=RAW, context=None, live=True):
-    return auth.authenticate(BytesParser(policy=policy.default).parsebytes(raw), raw, live, 'upload', context)
+def check(raw=RAW, context=None, live=True, source='upload'):
+    return auth.authenticate(BytesParser(policy=policy.default).parsebytes(raw), raw, live, source, context)
 
 @pytest.fixture
 def dns_policy(monkeypatch):
@@ -104,6 +104,37 @@ def test_published_policy_falls_back_to_p_when_a_subdomain_org_record_has_no_sp(
     result = check(raw)
     assert result['dmarc']['policy_domain'] == 'example.org'
     assert result['dmarc']['published_policy'] == 'quarantine'
+
+
+def test_gmail_push_source_gets_an_accurate_spf_unavailable_message():
+    # Regression (Antigravity-flagged, real): Gmail-push-ingested mail always
+    # has context=None, since the Gmail API's raw message fetch exposes no
+    # SMTP envelope data (no client IP/MAIL FROM/HELO) -- structurally
+    # unavoidable for this ingestion path, not an oversight. The generic
+    # "supply receiver context" message doesn't even apply here (an
+    # automated push notification can't "supply" anything); this checks the
+    # source-aware message instead explains the real reason.
+    result = check(source='gmail-push')
+    assert result['spf']['status'] == 'unknown'
+    assert 'Gmail API' in result['spf']['detail']
+    assert 'DKIM and DMARC' in result['spf']['detail']
+
+
+def test_dkim_still_verifies_for_gmail_push_mail_without_smtp_context(signed_mail):
+    # The important non-regression: SPF being unavailable for gmail-push
+    # mail must NOT mean authentication is a total blind spot there. DKIM
+    # verification (and DMARC's DKIM-alignment path) run unconditionally,
+    # no SMTP context needed -- confirms this on the real signed-mail fixture.
+    result = check(signed_mail, source='gmail-push')
+    assert result['dkim']['status'] == 'pass'
+
+
+def test_upload_source_keeps_the_original_generic_spf_message():
+    # Non-regression: the ordinary analyst-upload path's message (which DOES
+    # make sense there -- an analyst genuinely CAN supply receiver context)
+    # must be unchanged.
+    result = check(source='upload')
+    assert 'Supply receiver context' in result['spf']['detail']
 
 
 def test_tree_boundaries_and_limit():

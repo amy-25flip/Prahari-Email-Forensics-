@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import axios from 'axios'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import api from './api'
 import { ShieldCheck, ScanLine, Network, Files, Upload, ArrowUpRight, ArrowLeft, Download, Search, Trash2, X, LoaderCircle, Fingerprint, Mail, Globe2, Link2, AlertTriangle, ChevronRight, FileText } from 'lucide-react'
 import RelayMap from './RelayMap'
 import Authentication from './Authentication'
@@ -20,7 +20,6 @@ import ReviewDecision from './ReviewDecision'
 import PromptInjection from './PromptInjection'
 import './ps-features.css'
 
-const api = axios.create({ baseURL: '/api', headers: { 'X-Requested-With': 'Email-Threat-Detection' }, timeout: 90000 })
 const tone = score => score >= 60 ? 'danger' : score >= 25 ? 'warn' : 'good'
 const short = text => text.length > 40 ? text.slice(0, 37) + '...' : text
 
@@ -43,6 +42,17 @@ export default function App() {
   const [samples, setSamples] = useState([])
   const [health, setHealth] = useState(null)
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
+  // Defensive: the graph view does `graph.nodes.find(n => n.id === e.source).subject`
+  // (and similarly for e.target) without a null guard -- if an edge ever
+  // references a node id not present in graph.nodes (backend/store.py's
+  // connections() currently builds both from one atomic snapshot so this
+  // shouldn't happen today, but a future change to either side easily could),
+  // that throws and crashes the graph view instead of just skipping the one
+  // stale edge. Filtered once here so every render path below stays safe.
+  const graphEdges = useMemo(() => {
+    const nodeIds = new Set(graph.nodes.map(n => n.id))
+    return graph.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+  }, [graph])
   const [edge, setEdge] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -104,7 +114,7 @@ export default function App() {
     const token = (() => { try { return sessionStorage.getItem('efp_gmail_token') } catch { return '' } })()
     if (!token) return
     setBusy(true)
-    try { setResult((await axios.get(`/api/gmail/cases/${id}`, { headers: { Authorization: `Bearer ${token}` } })).data); setView('analyze'); setTab('evidence'); setVerification(null) }
+    try { setResult((await api.get(`/gmail/cases/${id}`, { headers: { Authorization: `Bearer ${token}` } })).data); setView('analyze'); setTab('evidence'); setVerification(null) }
     catch (e) { fail(e) }
     finally { setBusy(false) }
   }
@@ -172,7 +182,7 @@ export default function App() {
         </>}
         {view === 'cases' && <><div className="list-tools"><label className="search"><Search size={17}/><input aria-label="Search cases" placeholder="Search sender or subject" value={query} onChange={e => setQuery(e.target.value)}/></label><Badge>{cases.length} investigations</Badge></div><div className="case-list">{filtered.length ? filtered.map(c => <div className="case-row" key={c.id}><span className={`case-score ${tone(c.score)}`}>{c.score}</span><button className="case-open" onClick={() => openCase(c.id)}><strong>{c.subject}</strong><small>{c.sender}</small></button><Badge>{c.sample ? 'Fixture' : 'Uploaded'}</Badge><button title="Delete case and original email" onClick={() => remove(c.id)}><Trash2 size={17}/></button></div>) : <Empty>No matching investigations.</Empty>}</div></>}
         {view === 'gmail' && <GmailAlerts openCase={openGmailCase}/>}
-        {view === 'graph' && <><CampaignGroups openCase={openCase}/><div className="graph-stats"><Badge>{graph.nodes.length} emails</Badge><Badge color="good">{graph.edges.length} relationships</Badge><span>Candidate connections · analyst review required</span></div>{graph.nodes.length ? <><div className="graph"><svg viewBox="0 0 850 420" role="img" aria-label="Email relationship graph">{graph.edges.map((e, i) => { const pos = id => { const index = graph.nodes.findIndex(n => n.id === id); const angle = index * Math.PI * 2 / graph.nodes.length - Math.PI / 2; return [425 + Math.cos(angle) * 260, 210 + Math.sin(angle) * 135] }; const a = pos(e.source), b = pos(e.target); return <g key={i} onClick={() => setEdge(e)}><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={edge === e ? '#a3e635' : '#657b49'} strokeWidth="2"/><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="transparent" strokeWidth="18" className="clickable"/><title>{e.evidence.map(x => x.value).join(', ')}</title></g>})}{graph.nodes.map((n, i) => { const angle = i * Math.PI * 2 / graph.nodes.length - Math.PI / 2; const x = 425 + Math.cos(angle) * 260, y = 210 + Math.sin(angle) * 135; return <g key={n.id} className="clickable" onClick={() => openCase(n.id)}><circle cx={x} cy={y} r="24" fill="#141a20" stroke={n.score >= 60 ? '#ef4444' : '#a3e635'} strokeWidth="2"/><text x={x} y={y + 5} textAnchor="middle" fill="#f1f5f9" fontSize="13">{n.score}</text><text x={x} y={y + 43} textAnchor="middle" fill="#c1c8d1" fontSize="11">{short(n.subject).slice(0, 30)}</text><title>{n.subject}</title></g> })}</svg></div><Section title="Relationship evidence">{graph.edges.length ? graph.edges.map((e, i) => <button className={`edge-row ${edge === e ? 'chosen' : ''}`} key={i} onClick={() => setEdge(e)}><Network size={18}/><span><strong>{short(graph.nodes.find(n => n.id === e.source).subject)} ↔ {short(graph.nodes.find(n => n.id === e.target).subject)}</strong>{e.evidence.map((v, j) => <small className="mono" key={j}>{v.type}: {v.value}</small>)}</span><ChevronRight size={18}/></button>) : <Empty icon={Network}>No shared distinctive indicators found.</Empty>}{edge && <div className="verification"><strong>{edge.assessment}</strong><p>A shared indicator supports investigation, not a confirmed campaign attribution.</p></div>}</Section></> : <Empty icon={Network}>Analyze emails to build their relationship graph.</Empty>}</>}
+        {view === 'graph' && <><CampaignGroups openCase={openCase}/><div className="graph-stats"><Badge>{graph.nodes.length} emails</Badge><Badge color="good">{graphEdges.length} relationships</Badge><span>Candidate connections · analyst review required</span></div>{graph.nodes.length ? <><div className="graph"><svg viewBox="0 0 850 420" role="img" aria-label="Email relationship graph">{graphEdges.map((e, i) => { const pos = id => { const index = graph.nodes.findIndex(n => n.id === id); const angle = index * Math.PI * 2 / graph.nodes.length - Math.PI / 2; return [425 + Math.cos(angle) * 260, 210 + Math.sin(angle) * 135] }; const a = pos(e.source), b = pos(e.target); return <g key={i} onClick={() => setEdge(e)}><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={edge === e ? '#a3e635' : '#657b49'} strokeWidth="2"/><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="transparent" strokeWidth="18" className="clickable"/><title>{e.evidence.map(x => x.value).join(', ')}</title></g>})}{graph.nodes.map((n, i) => { const angle = i * Math.PI * 2 / graph.nodes.length - Math.PI / 2; const x = 425 + Math.cos(angle) * 260, y = 210 + Math.sin(angle) * 135; return <g key={n.id} className="clickable" onClick={() => openCase(n.id)}><circle cx={x} cy={y} r="24" fill="#141a20" stroke={n.score >= 60 ? '#ef4444' : '#a3e635'} strokeWidth="2"/><text x={x} y={y + 5} textAnchor="middle" fill="#f1f5f9" fontSize="13">{n.score}</text><text x={x} y={y + 43} textAnchor="middle" fill="#c1c8d1" fontSize="11">{short(n.subject).slice(0, 30)}</text><title>{n.subject}</title></g> })}</svg></div><Section title="Relationship evidence">{graphEdges.length ? graphEdges.map((e, i) => <button className={`edge-row ${edge === e ? 'chosen' : ''}`} key={i} onClick={() => setEdge(e)}><Network size={18}/><span><strong>{short(graph.nodes.find(n => n.id === e.source)?.subject || 'Unknown')} ↔ {short(graph.nodes.find(n => n.id === e.target)?.subject || 'Unknown')}</strong>{e.evidence.map((v, j) => <small className="mono" key={j}>{v.type}: {v.value}</small>)}</span><ChevronRight size={18}/></button>) : <Empty icon={Network}>No shared distinctive indicators found.</Empty>}{edge && <div className="verification"><strong>{edge.assessment}</strong><p>A shared indicator supports investigation, not a confirmed campaign attribution.</p></div>}</Section></> : <Empty icon={Network}>Analyze emails to build their relationship graph.</Empty>}</>}
         <footer><span><ShieldCheck size={14}/> AI-Powered Email Threat Detection</span><span>Evidence first. Attribution with uncertainty.</span></footer>
       </div>
     </main>

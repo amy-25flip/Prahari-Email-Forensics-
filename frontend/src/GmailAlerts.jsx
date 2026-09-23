@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import api from './api'
 import { KeyRound, RefreshCw, Trash2 } from 'lucide-react'
 
 const tone = score => score >= 60 ? 'danger' : score >= 25 ? 'warn' : 'good'
@@ -23,7 +23,7 @@ export default function GmailAlerts({ openCase }) {
 
   async function load(activeToken) {
     try {
-      const response = await axios.get('/api/gmail/cases', { headers: { Authorization: `Bearer ${activeToken}` } })
+      const response = await api.get('/gmail/cases', { headers: { Authorization: `Bearer ${activeToken}` } })
       setCases(response.data); setError('')
     } catch (e) {
       if (e.response?.status === 401) { writeToken(''); setToken(''); setCases(null); setError('Token rejected. Re-enter the Gmail cases read token.') }
