@@ -13,7 +13,9 @@ os.environ.setdefault('HF_HUB_OFFLINE', '1')
 os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
 os.environ.setdefault('HF_HUB_DISABLE_PROGRESS_BARS', '1')
 
-MODEL_ID = os.getenv('MODEL_ID', 'ealvaradob/bert-finetuned-phishing')
+_IN_HOUSE_MODEL = Path(__file__).resolve().parent.parent / 'training' / 'output' / 'phishing-bert-v1' / 'final'
+_DEFAULT_MODEL = str(_IN_HOUSE_MODEL) if (_IN_HOUSE_MODEL / 'model.safetensors').exists() else 'ealvaradob/bert-finetuned-phishing'
+MODEL_ID = os.getenv('MODEL_ID', _DEFAULT_MODEL)
 # Must match whatever the loaded model was actually trained/fine-tuned at -- a
 # train/inference mismatch here silently degrades accuracy without erroring.
 MAX_LENGTH = int(os.getenv('MODEL_MAX_LENGTH', '256'))

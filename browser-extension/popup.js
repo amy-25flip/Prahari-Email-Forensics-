@@ -9,7 +9,7 @@ async function load() {
   historyEl.innerHTML = history.length ? history.map(h => `
     <div class="row">
       <div><strong>${escapeHtml(h.subject || '(no subject)')}</strong><br><small>${escapeHtml(h.sender || '')}</small></div>
-      <span class="badge ${tone(h.score)}">${h.score}</span>
+      <span class="badge ${tone(h.score)}">${escapeHtml(String(h.score ?? ''))}</span>
     </div>`).join('') : '<div class="empty">No emails scanned yet. Open one in Gmail.</div>'
 }
 

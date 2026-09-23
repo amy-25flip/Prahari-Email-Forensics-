@@ -57,7 +57,7 @@ export default function GmailAlerts({ openCase }) {
   </section>
 
   return <section className="section">
-    <div className="section-head"><h3>Live Gmail alerts</h3><div><button className="secondary" onClick={() => load(token)} title="Refresh now"><RefreshCw size={15}/></button><button className="secondary" onClick={disconnect} title="Disconnect this browser's token"><Trash2 size={15}/></button></div></div>
+    <div className="section-head"><h3>Live Gmail alerts</h3><div><button className="secondary" onClick={() => load(token)} title="Refresh now" aria-label="Refresh alerts now"><RefreshCw size={15}/></button><button className="secondary" onClick={disconnect} title="Disconnect this browser's token" aria-label="Disconnect this browser's token"><Trash2 size={15}/></button></div></div>
     <p className="map-status">Emails to the watched Gmail inbox appear here automatically, refreshing every {POLL_MS / 1000}s. Each one is analyzed by the same pipeline as a manual upload.</p>
     {error && <p className="map-status warn">{error}</p>}
     {!loaded ? <p role="status">Loading...</p> : cases === null ? null : cases.length === 0 ? <p className="map-status">No Gmail-push-analyzed emails yet.</p> : <div className="case-list">{cases.map(c => <div className="case-row" key={c.id}><span className={`case-score ${tone(c.score)}`}>{c.score}</span><button className="case-open" onClick={() => openCase(c.id)}><strong>{c.subject || '(no subject)'}</strong><small>{c.sender}</small></button><Badge>{new Date(c.created * 1000).toLocaleString()}</Badge></div>)}</div>}

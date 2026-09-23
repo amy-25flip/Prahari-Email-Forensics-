@@ -7,4 +7,24 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: { host: '127.0.0.1', proxy: { '/api': 'http://127.0.0.1:8010' } },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('leaflet') || id.includes('d3-geo') || id.includes('topojson-client') || id.includes('world-atlas')) {
+              return 'vendor-maps'
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'vendor-react'
+            }
+            return 'vendor'
+          }
+        }
+      }
+    }
+  }
 })

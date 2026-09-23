@@ -77,7 +77,10 @@ INSTRUCTION_PATTERNS = [
 # _HiddenTextExtractor below), never used to score raw HTML by itself.
 HIDDEN_STYLE_VALUE = re.compile(
     r'display\s*:\s*none|visibility\s*:\s*hidden|'
-    r'font-size\s*:\s*0(?:px|em|%)?\b|opacity\s*:\s*0(?:\.0+)?\b', re.I)
+    r'font-size\s*:\s*0(?:px|em|%)?\b|opacity\s*:\s*0(?:\.0+)?\b|'
+    r'color\s*:\s*transparent\b|'
+    r'position\s*:\s*absolute\s*;\s*left\s*:\s*-[0-9]{3,}(?:px)?\b|'
+    r'max-height\s*:\s*0(?:px)?\b', re.I)
 
 # Void elements never have an end tag and can't contain children/text --
 # tracked separately so a plain (non-self-closed) `<br>`/`<img>`/etc. can't
@@ -135,7 +138,7 @@ class _HiddenTextExtractor(HTMLParser):
 # Explicit \u escapes, not literal characters -- these codepoints are
 # invisible in a source file too, which would make this file itself
 # impossible to review for exactly the class of bug it exists to catch.
-ZERO_WIDTH_CHARS = '\u200b\u200c\u200d\u2060\ufeff'  # ZWSP, ZWNJ, ZWJ, word joiner, BOM -- explicit escapes, not literal invisible chars, so this stays reviewable
+ZERO_WIDTH_CHARS = '\u200b\u200c\u200d\u2060\ufeff\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2061\u2062\u2063\u2064\u00ad'  # ZWSP, ZWNJ, ZWJ, word joiner, BOM, directionals, soft hyphen
 _ZERO_WIDTH_RE = re.compile('[' + ZERO_WIDTH_CHARS + ']')
 _ZERO_WIDTH_THRESHOLD = 5  # a handful can appear from ordinary copy/paste; a cluster suggests deliberate use
 

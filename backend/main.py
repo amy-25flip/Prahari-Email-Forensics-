@@ -55,10 +55,13 @@ async def lifespan(app):
     def maintain():
         next_refresh = 0
         while not stop.is_set():
-            store.cleanup()
-            if os.getenv('DISABLE_FEED_REFRESH') != '1' and time.monotonic() >= next_refresh:
-                reputation.refresh()
-                next_refresh = time.monotonic() + reputation.REFRESH_SECONDS
+            try:
+                store.cleanup()
+                if os.getenv('DISABLE_FEED_REFRESH') != '1' and time.monotonic() >= next_refresh:
+                    reputation.refresh()
+                    next_refresh = time.monotonic() + reputation.REFRESH_SECONDS
+            except Exception:
+                logging.exception("Maintenance cycle failed; retrying next cycle")
             stop.wait(60)
     worker = threading.Thread(target=maintain, daemon=True)
     worker.start()
@@ -168,10 +171,10 @@ async def boundary(request: Request, call_next):
     request.state.sid = sid
     response = await call_next(request)
     if cookie: response.set_cookie('efp_session', cookie, httponly=True, samesite='strict', secure=os.getenv('COOKIE_SECURE') == '1', max_age=store.RETENTION_SECONDS)
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Referrer-Policy'] = 'no-referrer'
-    response.headers['X-Frame-Options'] = 'DENY'
-    if request.url.path.startswith('/api'): response.headers['Cache-Control'] = 'no-store'
+    # Security headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy,
+    # Cache-Control) are set once, for every response including early returns from
+    # this middleware, by response_security() below -- it wraps this middleware as
+    # the outer layer (registered after it), so it always runs on the way out.
     return response
 
 
@@ -209,6 +212,7 @@ async def response_security(request: Request, call_next):
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['Content-Security-Policy'] = CONTENT_SECURITY_POLICY
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
     # Only ever sent when the deployer has explicitly asserted the app is
     # served over HTTPS (the SAME COOKIE_SECURE flag already gates the
     # session cookie's own Secure attribute above) -- sending HSTS over

@@ -132,18 +132,23 @@ def search_cases(sid, query):
 MAX_NOTES_PER_CASE = 50  # bounds events-table growth from repeated note-taking on one case
 
 
-def list_notes(sid, cid):
-    with connect() as db:
-        rows = db.execute("SELECT payload FROM events WHERE session=? ORDER BY seq", (sid,)).fetchall()
-    notes = []
-    for row in rows:
-        event = json.loads(row['payload'])
-        if event.get('action') == 'note' and event.get('id') == cid: notes.append(event)
-    return notes
+def list_notes(sid, cid, db=None):
+    def _query(conn):
+        rows = conn.execute("SELECT payload FROM events WHERE session=? ORDER BY seq", (sid,)).fetchall()
+        notes = []
+        for row in rows:
+            event = json.loads(row['payload'])
+            if event.get('action') == 'note' and event.get('id') == cid: notes.append(event)
+        return notes
+
+    if db is not None:
+        return _query(db)
+    with connect() as conn:
+        return _query(conn)
 
 
 def add_note(db, sid, cid, text):
-    if len(list_notes(sid, cid)) >= MAX_NOTES_PER_CASE:
+    if len(list_notes(sid, cid, db=db)) >= MAX_NOTES_PER_CASE:
         raise ValueError(f'Note limit reached ({MAX_NOTES_PER_CASE} per case). Delete unneeded notes first.')
     event = {'action': 'note', 'id': cid, 'at': time.time(), 'text': text}
     append(db, sid, event)
@@ -156,13 +161,18 @@ def set_owner(db, sid, cid, owner):
     return event
 
 
-def get_owner(sid, cid):
-    with connect() as db:
-        rows = db.execute("SELECT payload FROM events WHERE session=? ORDER BY seq DESC", (sid,)).fetchall()
-    for row in rows:
-        event = json.loads(row['payload'])
-        if event.get('action') == 'assign' and event.get('id') == cid: return event
-    return None
+def get_owner(sid, cid, db=None):
+    def _query(conn):
+        rows = conn.execute("SELECT payload FROM events WHERE session=? ORDER BY seq DESC", (sid,)).fetchall()
+        for row in rows:
+            event = json.loads(row['payload'])
+            if event.get('action') == 'assign' and event.get('id') == cid: return event
+        return None
+
+    if db is not None:
+        return _query(db)
+    with connect() as conn:
+        return _query(conn)
 
 
 def delete(sid, cid):
