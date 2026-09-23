@@ -16,7 +16,9 @@ import general_detection
 import prompt_injection
 import adversarial
 import pii
+import qr_detection
 import routing
+import finding_ids
 from authentication import authenticate
 from geolocation import enrich as enrich_locations
 from conflicts import detect as detect_conflicts
@@ -191,16 +193,20 @@ def analyze(raw, source='upload', live=False, context=None):
     # the stricter truthiness check.
     if not msg.get('From') or msg.get('Subject') is None:
         raise ValueError('Include at least From and Subject headers in a raw email.')
-    attachments, texts, html_links, html_sources = [], [], [], []
+    attachments, texts, html_links, html_sources, qr_urls = [], [], [], [], []
     for i, part in enumerate(msg.walk()):
         if i > 100: raise ValueError('Email has too many MIME parts (maximum 100).')
         if part.is_multipart(): continue
         payload = part.get_payload(decode=True) or b''
         if part.get_filename() or part.get_content_disposition() == 'attachment':
             name = str(part.get_filename() or 'unnamed')
-            attachments.append({'name': name[:300], 'type': part.get_content_type(), 'size': len(payload),
+            content_type = part.get_content_type()
+            decoded_qr = qr_detection.decode_qr_payloads(payload) if content_type in qr_detection.IMAGE_CONTENT_TYPES else []
+            qr_urls.extend(decoded_qr)
+            attachments.append({'name': name[:300], 'type': content_type, 'size': len(payload),
                                 'sha256': hashlib.sha256(payload).hexdigest(),
-                                'warning': bool(re.search(r'\.(exe|scr|js|vbs|lnk|iso|html|htm)$', name, re.I))})
+                                'warning': bool(re.search(r'\.(exe|scr|js|vbs|lnk|iso|html|htm)$', name, re.I)),
+                                'qr_payloads': decoded_qr})
         elif part.get_content_type() in ('text/plain', 'text/html'):
             try: decoded = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
             except LookupError: decoded = payload.decode('utf-8', errors='replace')
@@ -212,7 +218,12 @@ def analyze(raw, source='upload', live=False, context=None):
                 html_sources.append(decoded)
             else: texts.append(decoded)
     body = '\n'.join(texts)[:100000]
-    candidates = html_links + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body, re.I)]
+    # QR-decoded URLs go FIRST: they're a stronger structural signal (a link
+    # deliberately hidden inside an image, not just written in the body) and
+    # must not be silently starved by the 50-URL cap below on an email with
+    # many ordinary body/HTML links.
+    candidates = ([(u, '') for u in qr_urls] + html_links
+                  + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body, re.I)])
     urls = {}
     for candidate, shown in candidates:
         scanned = scan_url(candidate, shown)
@@ -241,6 +252,11 @@ def analyze(raw, source='upload', live=False, context=None):
             flag('reputation', 'Historical phishing-feed match' if stale else 'PhishTank URL match',
                  f"Record {rep['record_id']}; snapshot {rep['feed_status']}. URL matched locally, not visited.", 25 if stale else 60)
     if any(a['warning'] for a in attachments): flag('attachments', 'Active-content attachment extension', 'File was inventoried, not executed or malware-scanned.', 15)
+    for qr_url in set(qr_urls):
+        if qr_url in urls:
+            flag('links', 'QR code in attachment decodes to a link',
+                 f"Decoded destination: {qr_url[:200]}. Same as a body link scanned via URL text -- text-only "
+                 'scanners that never inspect the image would miss this ("quishing").', 15)
     for title, pattern in [('Credential pressure', r'(verify.{0,40}(account|password)|account.{0,30}suspend)'),
                            ('Payment diversion', r'(bank account.{0,25}chang|transfer the payment|updated bank details)'),
                            ('Verification avoidance', r'(do not (call|contact)|bypass.{0,25}approval|keep this confidential)')]:
@@ -294,6 +310,25 @@ def analyze(raw, source='upload', live=False, context=None):
         points = manipulation_points[indicator['type']]
         if points > 0:
             flag('manipulation', indicator['description'], indicator['excerpt'] or manipulation['detail'], points)
+    # Candidate payment-identifier tokens for cross-message thread comparison
+    # (see conversation.py) -- these are shape matches, not verified real
+    # payment instructions. Reuses pii's already-hardened UPI regex (PSP-suffix
+    # + negative-lookahead, so it doesn't false-match an ordinary email address)
+    # rather than a second, weaker one.
+    # A bare 9-18 digit run is FAR too broad on its own -- it matches phone
+    # numbers, invoice/tracking numbers, and dates just as readily as a real
+    # bank account number, which would make "account changed mid-thread"
+    # false-fire on completely ordinary business email. Require the digits to
+    # sit near actual account/banking wording (a real payment instruction),
+    # not just any long number appearing anywhere in the message.
+    account_context = re.compile(
+        r'(?:account|a/?c|acct)\.?\s*(?:no\.?|number|#)?\.?\s*:?\s*(\d{9,18})(?!\d)'
+        r'|(\d{9,18})(?!\d)\s*(?:account|a/?c|acct)', re.I)
+    payment_signals = {
+        'upi': sorted(set(m.lower() for m in pii._UPI.findall(body))),
+        'account': sorted(set(g for m in account_context.findall(body) for g in m if g)),
+        'ifsc': sorted(set(m.upper() for m in re.findall(r'\b[A-Za-z]{4}0[A-Za-z0-9]{6}\b', body))),
+    }
     caps = {'identity': 30, 'authentication': 20, 'links': 25, 'language': 35, 'attachments': 15, 'reputation': 60, 'manipulation': 40}
     groups = {group: min(cap, sum(f['points'] for f in findings if f['group'] == group)) for group, cap in caps.items()}
     score = min(100, sum(groups.values()))
@@ -315,6 +350,7 @@ def analyze(raw, source='upload', live=False, context=None):
     for a in attachments:
         if a['size']: indicators.append({'type': 'attachment_hash', 'value': a['sha256']})
     geo = enrich_locations(hops, live)
+    finding_ids.assign(findings, 'group')
     return {'subject': str(msg.get('Subject'))[:500], 'sender': str(msg.get('From'))[:500], 'recipient': str(msg.get('To', ''))[:500],
             'date': str(msg.get('Date', 'Unknown')), 'body': body, 'sha256': hashlib.sha256(raw).hexdigest(),
             'source': source, 'score': score, 'risk': 'High' if score >= 60 else 'Review' if score >= 25 else 'Low',
@@ -326,6 +362,7 @@ def analyze(raw, source='upload', live=False, context=None):
             'findings': findings, 'ml': prediction, 'authentication': auth, 'urls': list(urls.values()),
             'attachments': attachments, 'hops': hops, 'indicators': indicators, 'geo': geo,
             'prompt_injection': manipulation, 'adversarial': adversarial_delta, 'pii': pii.scan(classifier_text),
+            'payment_signals': payment_signals,
             'headers': [{'name': k, 'value': str(v)[:4000]} for k, v in list(msg.items())[:100]],
             'origin': 'Unverified', 'coverage': {'completed': 4 + int(auth['dkim']['status'] in ('pass', 'fail')), 'total': 8},
             'limitations': ['Header-reported relays do not identify a human sender.',

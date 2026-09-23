@@ -1,6 +1,7 @@
 """Local-only inference. Never silently substitute rules for a trained model."""
 import json
 import logging
+import math
 import os
 import threading
 import traceback
@@ -21,6 +22,51 @@ model = tokenizer = None
 phishing_index = None
 status = 'loading'
 detail = 'Loading locally cached model'
+temperature = 1.0
+calibration_note = ''
+# Bounds a loaded temperature must fall strictly inside. Codex review (Critical):
+# `float('inf')` passes a naive `value > 0` check, and dividing logits by inf
+# makes softmax uniform -- which CAN flip argmax/the reported label, directly
+# violating "temperature scaling never changes which class wins". A generous
+# but finite range closes that off while still comfortably covering any
+# legitimate fit (calibration_analysis.py's own grid search only ever
+# searches 0.5-5.0).
+MIN_TEMPERATURE, MAX_TEMPERATURE = 0.05, 20.0
+MAX_CALIBRATION_FILE_BYTES = 16 * 1024
+
+
+def _load_calibration(model_dir):
+    """Read a post-hoc temperature-scaling calibration file, if one was
+    written by training/calibration_analysis.py next to the model weights.
+    That script only ever writes this file when temperature scaling
+    demonstrably improved held-out test-set Brier score -- so its mere
+    presence is itself evidence-backed, not a claim taken on faith here.
+    Returns (temperature, note); (1.0, '') -- a no-op scaling and an empty
+    note -- whenever the file is absent, unreadable, malformed, or its
+    temperature value falls outside the sane bound above, so classify()
+    always has a safe, honestly-labeled 'uncalibrated' default.
+
+    Note: MODEL_ID may be a bare Hugging Face hub id (e.g. the pretrained
+    fallback), not a local directory -- Path(model_dir) then resolves to a
+    nonexistent relative path and this correctly, harmlessly falls back to
+    uncalibrated (calibration is only ever produced for this team's own
+    locally-trained checkpoint, not an arbitrary hub model)."""
+    try:
+        path = Path(model_dir) / 'calibration.json'
+        if path.stat().st_size > MAX_CALIBRATION_FILE_BYTES:
+            raise ValueError('calibration.json unexpectedly large; refusing to read it')
+        calib = json.loads(path.read_text(encoding='utf-8'))
+        value = float(calib['temperature'])
+        if not (math.isfinite(value) and MIN_TEMPERATURE <= value <= MAX_TEMPERATURE):
+            raise ValueError(f'temperature {value!r} outside sane bound [{MIN_TEMPERATURE}, {MAX_TEMPERATURE}]')
+        note = f'; temperature-scaled (T={value:g}'
+        raw_b, cal_b = calib.get('raw_test_brier_score'), calib.get('calibrated_test_brier_score')
+        if raw_b is not None and cal_b is not None:
+            note += f', test Brier {raw_b}->{cal_b}'
+        note += ')'
+        return value, note
+    except (OSError, ValueError, KeyError, TypeError):
+        return 1.0, ''
 
 
 def _phishing_label_index(id2label):
@@ -43,7 +89,7 @@ def _phishing_label_index(id2label):
 
 
 def load():
-    global model, tokenizer, phishing_index, status, detail
+    global model, tokenizer, phishing_index, status, detail, temperature, calibration_note
     if os.getenv('DISABLE_ML') == '1':
         status, detail = 'unavailable', 'Model disabled by configuration'
         return
@@ -60,6 +106,7 @@ def load():
         resolved_phishing_index = _phishing_label_index(candidate.config.id2label)
         model = candidate.eval()
         phishing_index = resolved_phishing_index
+        temperature, calibration_note = _load_calibration(MODEL_ID)
         status = 'ready'
         if MODEL_ID == 'ealvaradob/bert-finetuned-phishing':
             detail = 'Local CPU inference; pretrained model, not team-retrained'
@@ -92,9 +139,19 @@ def classify(text):
     import torch
     with lock, torch.inference_mode():
         inputs = tokenizer(text, return_tensors='pt', truncation=True, max_length=MAX_LENGTH)
-        scores = torch.softmax(model(**inputs).logits, dim=-1)[0]
+        logits = model(**inputs).logits
+        # Dividing by a positive temperature rescales confidence but never
+        # reorders the logits, so which class wins (argmax) is unchanged --
+        # temperature scaling calibrates confidence, it does not relabel.
+        scores = torch.softmax(logits / temperature, dim=-1)[0]
         index = int(scores.argmax())
+        if temperature != 1.0:
+            classify_detail = (f'Temperature-scaled model probability{calibration_note}; first {MAX_LENGTH} tokens; '
+                                'calibration was measured on held-out validation/test data and improves confidence '
+                                'calibration, not detection quality -- it may not generalize to real-world drift')
+        else:
+            classify_detail = f'Uncalibrated model probability; first {MAX_LENGTH} tokens; independent evaluation pending'
         return {'status': 'ready', 'model': MODEL_ID, 'label': model.config.id2label[index],
                 'confidence': round(float(scores[index]) * 100, 1),
                 'phishing_probability': round(float(scores[phishing_index]) * 100, 1),
-                'detail': f'Uncalibrated model probability; first {MAX_LENGTH} tokens; independent evaluation pending'}
+                'detail': classify_detail}

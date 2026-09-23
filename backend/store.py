@@ -98,6 +98,73 @@ def all_cases(sid):
     return [json.loads(db_encryption.decrypt_text(row['report'])) for row in rows]
 
 
+def search_cases(sid, query):
+    """Case-insensitive substring search across every case's subject, sender,
+    recipient, findings, and indicator values -- not just the lightweight
+    summary fields the plain case list exposes. Bounded by the same
+    per-session case cap save() already enforces, so a linear scan over every
+    decrypted report is cheap; no separate search index is needed at this scale.
+    Defensive against a malformed/legacy stored report (None or non-list
+    findings/indicators, or a non-dict entry inside either list) -- one bad
+    row must degrade that row's search text, never 500 the whole listing."""
+    needle = query.strip().casefold()
+    if not needle: return all_cases(sid)
+    matches = []
+    for report in all_cases(sid):
+        findings = report.get('findings') or []
+        indicators = report.get('indicators') or []
+        parts = [report.get('subject'), report.get('sender'), report.get('recipient')]
+        parts += [f.get('title') for f in findings if isinstance(f, dict)]
+        parts += [f.get('detail') for f in findings if isinstance(f, dict)]
+        parts += [i.get('value') for i in indicators if isinstance(i, dict)]
+        haystack = ' '.join(str(v) for v in parts if v).casefold()
+        if needle in haystack: matches.append(report)
+    return matches
+
+
+# Analyst notes and case ownership/assignment are modelled the same way as
+# review decisions (see main.py's /api/cases/{cid}/review): append-only audit
+# events, never a separately-mutable row, so every analyst action stays inside
+# the same tamper-evident hash chain as the rest of the evidence trail. Notes
+# accumulate (every 'note' event is kept); assignment is single-current-state
+# (only the latest 'assign' event for a case matters).
+
+MAX_NOTES_PER_CASE = 50  # bounds events-table growth from repeated note-taking on one case
+
+
+def list_notes(sid, cid):
+    with connect() as db:
+        rows = db.execute("SELECT payload FROM events WHERE session=? ORDER BY seq", (sid,)).fetchall()
+    notes = []
+    for row in rows:
+        event = json.loads(row['payload'])
+        if event.get('action') == 'note' and event.get('id') == cid: notes.append(event)
+    return notes
+
+
+def add_note(db, sid, cid, text):
+    if len(list_notes(sid, cid)) >= MAX_NOTES_PER_CASE:
+        raise ValueError(f'Note limit reached ({MAX_NOTES_PER_CASE} per case). Delete unneeded notes first.')
+    event = {'action': 'note', 'id': cid, 'at': time.time(), 'text': text}
+    append(db, sid, event)
+    return event
+
+
+def set_owner(db, sid, cid, owner):
+    event = {'action': 'assign', 'id': cid, 'at': time.time(), 'owner': owner}
+    append(db, sid, event)
+    return event
+
+
+def get_owner(sid, cid):
+    with connect() as db:
+        rows = db.execute("SELECT payload FROM events WHERE session=? ORDER BY seq DESC", (sid,)).fetchall()
+    for row in rows:
+        event = json.loads(row['payload'])
+        if event.get('action') == 'assign' and event.get('id') == cid: return event
+    return None
+
+
 def delete(sid, cid):
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')

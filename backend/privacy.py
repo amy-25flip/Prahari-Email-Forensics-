@@ -13,7 +13,7 @@ def redact(report):
         'sha256': report['sha256'], 'score': report['score'], 'risk': report['risk'],
         'origin': 'Withheld in redacted export', 'authentication': auth,
         'ml': {'label': (report.get('ml') or {}).get('label', 'unknown'), 'detail': 'Local model output; uncalibrated.'},
-        'findings': [{'group': f['group'], 'title': f['title'], 'detail': masked, 'points': f['points']}
+        'findings': [{'id': f.get('id'), 'group': f['group'], 'title': f['title'], 'detail': masked, 'points': f['points']}
                      for f in report['findings']],
         'indicators': [], 'urls': [], 'attachments': [], 'hops': [], 'headers': [],
         'privacy': {'mode': 'redacted', 'original_preserved': True,

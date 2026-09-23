@@ -232,6 +232,14 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
         reputation_triage.apply(result)
         import attribution
         result['assessment']['attribution'] = attribution.assess(result)
+        import conversation
+        prior_reports = store.all_cases(sid)  # session-scoped; current result isn't saved yet
+        result['assessment']['conversation'] = conversation.assess(result, prior_reports)
+        result['assessment']['checks'] = result['assessment']['checks'] + result['assessment']['conversation']['checks']
+        import finding_ids
+        finding_ids.assign(result['assessment']['checks'], 'kind')
+        import network_history
+        result['assessment']['network_history'] = network_history.assess(result, prior_reports)
         if result['assessment']['checks'] and result['triage']['priority'] in ('routine', 'incomplete'):
             result['triage'].update(priority='review', label='Review required',
                                    reasons=['Supplemental header, identity or attachment checks require review.'],
@@ -700,8 +708,12 @@ def analyze_sample(sample_id: str, request: Request):
 
 
 @app.get('/api/cases')
-def cases(request: Request):
-    return [{k: r[k] for k in ('id', 'subject', 'sender', 'score', 'risk', 'created', 'sample')} for r in store.all_cases(request.state.sid)]
+def cases(request: Request, q: str | None = None):
+    # q, when given, searches full case content (subject, sender, recipient,
+    # findings, indicators) -- not just the lightweight summary fields
+    # returned below. See store.search_cases for scope/limits.
+    reports = store.search_cases(request.state.sid, q) if q else store.all_cases(request.state.sid)
+    return [{k: r[k] for k in ('id', 'subject', 'sender', 'score', 'risk', 'created', 'sample')} for r in reports]
 
 
 @app.get('/api/cases/{cid}')
@@ -756,6 +768,12 @@ def campaign_groups(request: Request):
     return campaigns.build(store.all_cases(request.state.sid))
 
 
+@app.get('/api/campaigns/graph')
+def campaign_evidence_graph(request: Request):
+    import campaigns
+    return campaigns.evidence_graph(store.all_cases(request.state.sid))
+
+
 class Checkpoint(BaseModel):
     model_config = ConfigDict(extra='forbid')
     schema_version: int = Field(alias='schema', ge=1, le=1, strict=True)
@@ -771,6 +789,16 @@ class ReviewDecision(BaseModel):
     decision: str = Field(pattern=r'^(hold|approved)$')
     note: str = Field(min_length=20, max_length=1000)
     acknowledged: bool = Field(strict=True)
+
+
+class NoteEntry(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class CaseAssignment(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    owner: str = Field(min_length=1, max_length=200)
 
 
 class BlockchainProof(BaseModel):
@@ -803,6 +831,50 @@ def record_review(cid: str, payload: ReviewDecision, request: Request):
         if not db.execute('SELECT id FROM cases WHERE id=? AND session=?', (cid, request.state.sid)).fetchone():
             raise HTTPException(404, 'Case no longer exists')
         store.append(db, request.state.sid, event)
+    return event
+
+
+@app.get('/api/cases/{cid}/notes')
+def list_notes(cid: str, request: Request):
+    get_case(cid, request)
+    return store.list_notes(request.state.sid, cid)
+
+
+@app.post('/api/cases/{cid}/notes')
+def add_note(cid: str, payload: NoteEntry, request: Request):
+    text = payload.text.strip()
+    if len(text) < 1: raise HTTPException(400, 'Provide non-empty note text.')
+    get_case(cid, request)
+    try:
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT id FROM cases WHERE id=? AND session=?', (cid, request.state.sid)).fetchone():
+                raise HTTPException(404, 'Case no longer exists')
+            event = store.add_note(db, request.state.sid, cid, text)
+    except ValueError as exc:
+        # A per-case note-count ceiling is transient (the case is fine, notes
+        # can be deleted or the analyst can wait) -- 503, not 400, matching
+        # execute()'s own capacity-vs-malformed-input distinction.
+        raise HTTPException(503, str(exc)) from exc
+    return event
+
+
+@app.get('/api/cases/{cid}/assign')
+def get_assignment(cid: str, request: Request):
+    get_case(cid, request)
+    return store.get_owner(request.state.sid, cid) or {'owner': None}
+
+
+@app.post('/api/cases/{cid}/assign')
+def assign_case(cid: str, payload: CaseAssignment, request: Request):
+    owner = payload.owner.strip()
+    if len(owner) < 1: raise HTTPException(400, 'Provide a non-empty owner.')
+    get_case(cid, request)
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT id FROM cases WHERE id=? AND session=?', (cid, request.state.sid)).fetchone():
+            raise HTTPException(404, 'Case no longer exists')
+        event = store.set_owner(db, request.state.sid, cid, owner)
     return event
 
 
@@ -902,7 +974,8 @@ def export(cid: str, fmt: str, request: Request):
         if result.get('assessment'):
             line('Threat categories: ' + ', '.join(result['assessment']['categories']))
             line(result['assessment']['method'])
-            for check in result['assessment']['checks']: line(check['title'] + ': ' + check['detail'])
+            for check in result['assessment']['checks']:
+                line(f"[{check.get('id', '?')}] " + check['title'] + ': ' + check['detail'])
             origin = result['assessment'].get('origin_evidence', {})
             line('Origin evidence confidence: ' + origin.get('confidence', 'undetermined'))
             line(origin.get('basis', ''))
@@ -922,7 +995,7 @@ def export(cid: str, fmt: str, request: Request):
             for entry in result['assessment'].get('attachment_reputation', []):
                 if entry.get('status') in ('available', 'no_prior_reports'):
                     line(f"Attachment reputation {entry['sha256'][:16]}...: {entry['detail']}")
-        for finding in result['findings']: line(f"{finding['title']}: {finding['detail']}")
+        for finding in result['findings']: line(f"[{finding.get('id', '?')}] {finding['title']}: {finding['detail']}")
         if result.get('prompt_injection', {}).get('indicators'):
             line('AI MANIPULATION SIGNALS', 13)
             line(result['prompt_injection']['detail'])

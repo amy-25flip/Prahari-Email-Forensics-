@@ -5,6 +5,8 @@ import re
 from email.utils import parseaddr
 from publicsuffixlist import PublicSuffixList
 
+GRAPH_NODE_ID_LENGTH = 16
+
 PSL = PublicSuffixList()
 STRONG = {'reply_address', 'attachment_hash', 'url', 'thread_id'}
 SHINGLE_SIZE = 5
@@ -94,3 +96,76 @@ def build(reports):
                           'assessment': 'Candidate group, not a confirmed fraud campaign. Common links or reply addresses can be legitimate.'})
     return {'campaigns': campaigns, 'edges': edges,
             'policy': 'Shared domains, sender addresses and IPs alone never create campaign groups. Near-duplicate subject/body content (character-shingle similarity) is treated as strong evidence, same as exact-matched indicators. Duplicate emails and demo/live mixtures are excluded.'}
+
+
+# The only node types indicators() is documented to produce. Enforced here,
+# not just claimed: indicators() itself pulls arbitrary (type, value) pairs
+# straight out of report['indicators'] without validating the type name, so
+# without this whitelist a malformed/legacy report could inject an
+# unexpected node type and silently make the "exactly these types" policy
+# claim below false. Codex review (Low): this was previously true only by
+# convention (every current engine.py call site happens to only ever write
+# reply_address/url/attachment_hash there), not by enforcement.
+KNOWN_INDICATOR_NODE_TYPES = {'sender_address', 'sender_domain', 'reported_ip', 'url', 'attachment_hash',
+                               'reply_address', 'thread_id'}
+
+
+def _indicator_node_id(kind, value):
+    return hashlib.sha256(f'{kind}:{value}'.encode('utf-8', errors='replace')).hexdigest()[:GRAPH_NODE_ID_LENGTH]
+
+
+def evidence_graph(reports):
+    """A typed node/edge graph over the SAME session-scoped case indicators
+    build() already extracts (see indicators() above), exposed as a proper
+    graph rather than only pairwise case-to-case edges. Where build() answers
+    "which two cases are linked", this answers "which cases touch domain X"
+    or "how many cases share this reported IP" directly -- a case node
+    connects to an indicator node for every indicator it exhibits, with the
+    SAME strong/context_only confidence tiering build() already uses.
+
+    Honest scope: node types are exactly KNOWN_INDICATOR_NODE_TYPES above --
+    unrecognized indicator types are silently skipped, not fabricated into a
+    surprise node type. There is deliberately NO certificate/TLS-fingerprint
+    node type: this app does not collect TLS certificate data anywhere, so
+    adding that node type would be a fabricated capability, not a documented
+    gap. Session-scoped only, bounded by the same per-session case cap
+    store.py already enforces -- this is not built to scale past that, and
+    doesn't need to for this app's own case history.
+
+    A truncated-hash node id collision (astronomically unlikely at this
+    app's session-scoped case counts, but checked rather than assumed) never
+    silently merges two different indicators onto one node -- it raises,
+    the same "explicit exception over a silently-wrong result" convention
+    training/train_phishing_model.py's own cross-split leakage check uses."""
+    nodes = {}
+    edges = []
+    for report in reports:
+        case_id = report.get('id')
+        if not case_id:
+            # Every stored case is assigned a real id by store.py -- a report
+            # without one indicates a bug elsewhere, not a graph to build
+            # around. Without this check, two such reports would silently
+            # collapse onto the same 'case:' node (setdefault keeps the
+            # first), same class of silent-merge the indicator-node collision
+            # guard below exists to prevent -- so this is checked the same way.
+            raise RuntimeError('evidence_graph() received a report with no id; every stored case must have one.')
+        case_node_id = 'case:' + str(case_id)
+        nodes.setdefault(case_node_id, {'id': case_node_id, 'type': 'case', 'value': case_id})
+        for kind, value in sorted(indicators(report)):
+            if kind not in KNOWN_INDICATOR_NODE_TYPES:
+                continue
+            node_id = _indicator_node_id(kind, value)
+            existing = nodes.get(node_id)
+            if existing is None:
+                nodes[node_id] = {'id': node_id, 'type': kind, 'value': value}
+            elif existing['type'] != kind or existing['value'] != value:
+                raise RuntimeError(f'Evidence-graph node id collision between ({existing["type"]!r}, '
+                                    f'{existing["value"]!r}) and ({kind!r}, {value!r}) -- refusing to silently '
+                                    'merge two different indicators onto one node.')
+            edges.append({'source': case_node_id, 'target': node_id,
+                         'confidence': 'strong' if kind in STRONG else 'context_only'})
+    return {'nodes': list(nodes.values()), 'edges': edges,
+            'policy': 'Case-to-indicator graph, session-scoped only -- a case sharing an indicator with another case '
+                      'is not proof of a common actor, same caveat as build(). Node types are limited to what this '
+                      'app actually collects (address/domain/IP/URL/hash/thread); there is no certificate/TLS-'
+                      'fingerprint node type since this app does not collect that data.'}
