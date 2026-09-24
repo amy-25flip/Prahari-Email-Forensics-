@@ -17,7 +17,7 @@ Use Slides 1-6 below as **slide-ready copy**, not a research dump. Keep lines sh
 
 ## 30-Second Pitch (memorize this cold)
 
-> "One compromised inbox took down public trust in a major Indian bank this year. Most tools just block a suspicious email - we built PRAHARI to investigate it. It reads the email the way a forensic analyst would: verify who really sent it, trace the infrastructure behind it, catch the AI-evasion tricks other scanners miss, link it to other attacks in the same campaign, and seal the whole case with a tamper-evident, blockchain-anchored proof - in under a second. It's not a filter. It's an evidence layer for every SOC and cybercrime cell in the country that can't afford an enterprise forensics suite."
+> "One compromised inbox took down public trust in a major Indian bank this year. Most tools just block a suspicious email - we built PRAHARI to investigate it. It reads the email the way a forensic analyst would: verify who really sent it, trace the infrastructure behind it, catch the AI-evasion tricks other scanners miss, link it to other attacks in the same campaign, and seal the whole case with a tamper-evident, blockchain-anchored proof - in well under a second locally, about a second with live enrichment. It's not a filter. It's an evidence layer for every SOC and cybercrime cell in the country that can't afford an enterprise forensics suite."
 
 Say this, then go straight to the live demo. Don't explain architecture before a judge has seen the product work.
 
@@ -110,7 +110,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **623 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- **633 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -131,7 +131,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 623 backend tests green
+- 633 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -180,7 +180,7 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 **Seconds, not guesswork.**
 
 - **~50-65 ms median analysis time (p95 under 80 ms), server-measured** with the BERT model loaded, on the local-only path (no live enrichment) - two 100-run benchmarks (engine-only and full API path incl. case storage), raw data in `benchmarks/`; exact figure varies with machine load
-- **Sub-second, network-bounded** when live enrichment (DNS/RDAP/VirusTotal/AbuseIPDB) is switched on - adds real but bounded time, not fixed, since it depends on external API response time
+- **~1-1.5 s for a first-time live enrichment** (DNS/RDAP/geo/AbuseIPDB, measured across six real domains - `benchmarks/enrichment_timing.json`), and back to ~35 ms for repeat lookups thanks to caching. Network-dependent, so quote it as "about a second," not a guarantee
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
 - **0 known vulnerabilities** in a `pip-audit` scan of all 85 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (85 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
@@ -255,7 +255,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 623 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 633 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -274,7 +274,7 @@ Every one of these was actually asked or actually investigated during developmen
 A: The 9 positive factors intentionally sum to 110, with the final score capped at `min(100, ...)`. That's deliberate headroom: a case missing one weak signal (e.g. geolocation, worth only 5 points) can still reach a perfect 100 instead of being permanently capped below it for one unavailable, low-value factor. It's a documented design choice, tested (`test_all_nine_positive_factors_applied_still_caps_at_exactly_100`), not an oversight.
 
 **Q: Your rate-limiting trusts a reverse proxy's forwarded-IP header - isn't that spoofable?**
-A: Only when explicitly enabled (`TRUSTED_PROXY_HOPS` opt-in, off by default) and only from a direct connection in an IP allowlist (`TRUSTED_PROXY_IPS`) - fails closed otherwise. An unrecognized direct connection's forged header is never trusted. (Known scope limit: a multi-hop proxy chain isn't yet individually verified per-hop - fine for our actual single-proxy deployment, flagged as the next hardening step.)
+A: Only when explicitly enabled (`TRUSTED_PROXY_HOPS` opt-in, off by default) and only from a direct connection in an IP allowlist (`TRUSTED_PROXY_IPS`) - fails closed otherwise. An unrecognized direct connection's forged header is never trusted. In a multi-proxy chain, every hop between the app and the client must itself be a trusted proxy (exact IPs or CIDR ranges); the first untrusted address from the right is taken as the client, so a forged prefix is never reached.
 
 **Q: Does Gmail Guard use an official Gmail API?**
 A: The push-ingestion path (Gmail Pub/Sub) does, with OIDC-authenticated webhooks. The browser-extension banner reads Gmail's own page markup to show a live risk score inline - that's inherently coupled to Gmail's frontend, which we say plainly rather than oversell as an official integration. It's live-verified today; the Pub/Sub path is the production-grade one.
@@ -345,7 +345,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ "Gmail Guard" browser extension - live-verified end-to-end against real Gmail, in-page risk banner
 
 **Reporting & SOC Integration**
-- ✅ PDF (with real Unicode/Devanagari text shaping - Hindi renders correctly, not as `?`) / JSON / CSV / CEF exports
+- ✅ PDF (with real Unicode/Devanagari text shaping - Hindi renders correctly, not as `?`) / JSON / CSV / CEF exports - the CSV is sectioned (indicators, findings, URLs, authentication, attachments) with spreadsheet-formula-injection neutralised, and JSON exports carry a schema version
 - ✅ Live-verified Splunk HEC delivery
 - ✅ Case list, single-case view, campaign/connection view, review-and-acknowledge workflow
 
@@ -356,14 +356,14 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 
 **Security Hardening**
 - ✅ Content-Security-Policy, Strict-Transport-Security and Permissions-Policy headers - CSP live-verified in a real browser against the deployed app's actual map tiles, not just theoretically correct
-- ✅ Dangerous URL schemes (`javascript:`, `data:`, `vbscript:`) explicitly flagged instead of silently dropped
+- ✅ Dangerous URL schemes explicitly flagged instead of silently dropped: `javascript:`/`data:`/`vbscript:` at full severity (including case, whitespace and control-character obfuscation), and handler schemes (`file:`, `search-ms:`, the `ms-*` family used in Follina-style exploits) at review level
 - ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
 - ✅ Mobile-responsive layout and an automated accessibility audit (`security/ACCESSIBILITY_AUDIT.md`): axe-core WCAG 2.1 A/AA clean across 12 UI states, contrast verified on 1,226 text elements (one real failure found and fixed), no horizontal overflow at 375 px. Automated audit only - not a screen-reader test or a WCAG certification
-- ✅ Frontend bundle splitting - main JS chunk cut from ~521 kB to 67 kB via vendor chunking
+- ✅ Frontend bundle splitting - measured: a single unsplit 542 kB JS bundle became cacheable vendor chunks plus a 67 kB app chunk (total bytes are similar; the win is a small entry chunk and long-lived vendor caching, not less code)
 - ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 623 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ 633 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 14 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)

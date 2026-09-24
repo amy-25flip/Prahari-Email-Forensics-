@@ -165,3 +165,43 @@ def test_hsts_only_sent_when_cookie_secure_is_explicitly_enabled(client, monkeyp
     monkeypatch.setenv('COOKIE_SECURE', '1')
     response = client.get('/api/health')
     assert response.headers['strict-transport-security'] == 'max-age=31536000; includeSubDomains'
+
+
+def test_multi_hop_stops_at_the_first_untrusted_entry_from_the_right(monkeypatch):
+    # Chain: client -> proxyA -> proxyB(direct) -> app, HOPS=2. XFF = "client, proxyA".
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 2)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'proxyB', 'proxyA'})
+    request = _FakeRequest('proxyB', {'x-forwarded-for': '203.0.113.9, proxyA'})
+    assert main.peer_identity(request) == '203.0.113.9'
+
+
+def test_multi_hop_forged_prefix_cannot_masquerade_when_a_middle_hop_is_untrusted(monkeypatch):
+    # Attacker reaches the last proxy directly with a forged XFF. The "middle" entry
+    # is not a trusted proxy, so it is treated as the real client identity - the
+    # forged prefix ("victim-ip") is never reached.
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 2)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'proxyB'})
+    request = _FakeRequest('proxyB', {'x-forwarded-for': 'victim-ip, attacker-ip'})
+    assert main.peer_identity(request) == 'attacker-ip'
+
+
+def test_multi_hop_three_proxies_all_trusted_returns_the_client(monkeypatch):
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 3)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', {'p1', 'p2', 'p3'})
+    request = _FakeRequest('p3', {'x-forwarded-for': 'fake, 198.51.100.4, p1, p2'})
+    assert main.peer_identity(request) == '198.51.100.4'
+
+
+def test_trusted_proxy_cidr_ranges_are_honoured_and_bad_entries_ignored(monkeypatch):
+    import main
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_HOPS', 2)
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_IPS', set())
+    monkeypatch.setattr(main, 'TRUSTED_PROXY_CIDRS', main._parse_networks('10.0.0.0/8, not-a-cidr, 192.168.1.0/24'))
+    assert len(main.TRUSTED_PROXY_CIDRS) == 2
+    request = _FakeRequest('10.4.5.6', {'x-forwarded-for': '203.0.113.7, 192.168.1.20'})
+    assert main.peer_identity(request) == '203.0.113.7'
+    outside = _FakeRequest('172.16.0.1', {'x-forwarded-for': '203.0.113.7, 192.168.1.20'})
+    assert main.peer_identity(outside) == '172.16.0.1'

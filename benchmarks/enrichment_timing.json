@@ -1,0 +1,8 @@
+{
+  "what": "Server-measured elapsed_ms for /api/analyze?enrich=true against LIVE external services (DNS, RDAP, ipwho.is, AbuseIPDB with the developer's key), one email per real public domain + IP, first request per domain (cold cache). Run by hand on 2026-09-24 against the local server; not reproducible offline.",
+  "cold_ms_by_domain": {"microsoft.com": 1365, "python.org": 1092, "mozilla.org": 1244, "wikipedia.org": 1212, "kernel.org": 1239, "debian.org": 1216},
+  "cold_summary_ms": {"min": 1092, "median": 1228, "max": 1365},
+  "very_first_request_after_server_start_ms": 2193,
+  "repeat_lookups_ms": "33-39 (served from the in-memory reputation/DNS/geo caches, i.e. the same speed as the local-only path)",
+  "caveat": "Depends on external API latency and the machine's network; treat as an order of magnitude (about 1-2 s), not a guarantee."
+}

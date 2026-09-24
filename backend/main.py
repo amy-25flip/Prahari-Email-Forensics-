@@ -110,6 +110,30 @@ TRUSTED_PROXY_HOPS = int(os.getenv('TRUSTED_PROXY_HOPS', '0'))
 TRUSTED_PROXY_IPS = {ip.strip() for ip in os.getenv('TRUSTED_PROXY_IPS', '').split(',') if ip.strip()}
 
 
+def _parse_networks(value):
+    import ipaddress
+    networks = []
+    for item in value.split(','):
+        item = item.strip()
+        if not item: continue
+        try: networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError: logging.warning('Ignoring invalid TRUSTED_PROXY_CIDRS entry: %r', item)
+    return networks
+
+
+# Optional CIDR ranges (e.g. 10.0.0.0/8) for proxy fleets whose addresses change.
+TRUSTED_PROXY_CIDRS = _parse_networks(os.getenv('TRUSTED_PROXY_CIDRS', ''))
+
+
+def _is_trusted_proxy(address):
+    if address in TRUSTED_PROXY_IPS: return True
+    if not TRUSTED_PROXY_CIDRS: return False
+    import ipaddress
+    try: ip = ipaddress.ip_address(address)
+    except ValueError: return False
+    return any(ip in network for network in TRUSTED_PROXY_CIDRS)
+
+
 def peer_identity(request):
     """The identity used for peer rate-limiting. With TRUSTED_PROXY_HOPS=0
     (default) or an unrecognized direct peer, this is exactly
@@ -124,12 +148,20 @@ def peer_identity(request):
     entries than expected (a misconfigured/missing proxy must not silently
     trust attacker input)."""
     direct = request.client.host if request.client else 'unknown'
-    if TRUSTED_PROXY_HOPS <= 0 or direct not in TRUSTED_PROXY_IPS:
+    if TRUSTED_PROXY_HOPS <= 0 or not _is_trusted_proxy(direct):
         return direct
     forwarded = request.headers.get('x-forwarded-for', '')
     parts = [p.strip() for p in forwarded.split(',') if p.strip()]
     if len(parts) < TRUSTED_PROXY_HOPS:
         return direct
+    # Multi-hop: the direct peer is proxy #1 and appended parts[-1]; every entry
+    # between it and the client (parts[-1] .. parts[-(HOPS-1)]) must itself be a
+    # trusted proxy. The first entry from the right that is NOT trusted is the
+    # real client -- a forged value prepended by an attacker can never be reached,
+    # because trusted proxies only ever append.
+    for offset in range(1, TRUSTED_PROXY_HOPS):
+        if not _is_trusted_proxy(parts[-offset]):
+            return parts[-offset]
     return parts[-TRUSTED_PROXY_HOPS]
 
 
@@ -1026,16 +1058,27 @@ def export(cid: str, fmt: str, request: Request):
     summary = pii.summarize(result, emails=mask_emails)
     result = pii.sanitize_report(result, emails=mask_emails)
     result['masking_summary'] = summary
+    result['export_schema'] = 1
     if fmt == 'json': body, mime = json.dumps(result, indent=2, ensure_ascii=True).encode(), 'application/json'
     elif fmt == 'cef': body, mime = siem.cef(result).encode(), 'text/plain'
     elif fmt == 'csv':
         stream = io.StringIO(newline='')
         writer = csv.writer(stream)
-        writer.writerow(['type', 'indicator'])
-        for item in result['indicators']:
-            val = item['value']
-            if val.lstrip().startswith(('=', '+', '-', '@')): val = "'" + val
-            writer.writerow([item['type'], val])
+        def cell(value):
+            value = '' if value is None else str(value)
+            # Neutralise spreadsheet formula injection (a leading = + - @ or tab/CR runs as a formula).
+            return "'" + value if value.lstrip().startswith(('=', '+', '-', '@', '\t', '\r')) else value
+        writer.writerow(['section', 'type', 'value', 'detail'])
+        for item in result.get('indicators', []):
+            writer.writerow(['indicators', cell(item.get('type')), cell(item.get('value')), ''])
+        for item in result.get('findings', []):
+            writer.writerow(['findings', cell(item.get('group')), cell(item.get('title')), cell(f"{item.get('detail', '')} (points: {item.get('points', 0)})")])
+        for item in result.get('urls', []):
+            writer.writerow(['urls', cell(item.get('protocol')), cell(item.get('url')), cell(f"score {item.get('score', 0)}: " + '; '.join(item.get('reasons', [])))])
+        for name, value in (result.get('authentication') or {}).items():
+            if isinstance(value, dict): writer.writerow(['authentication', cell(name), cell(value.get('status')), cell(value.get('detail') or value.get('published_policy') or '')])
+        for item in result.get('attachments', []):
+            writer.writerow(['attachments', cell(item.get('type')), cell(item.get('name')), cell(f"sha256 {item.get('sha256', '')}, {item.get('size', 0)} bytes" + (', active-content extension' if item.get('warning') else ''))])
         body, mime = stream.getvalue().encode('utf-8-sig'), 'text/csv'
     elif fmt == 'pdf':
         from fpdf import FPDF

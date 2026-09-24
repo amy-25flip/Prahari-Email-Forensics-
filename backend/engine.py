@@ -83,6 +83,9 @@ class HTMLText(HTMLParser):
 # Other non-http(s) schemes (mailto:, tel:, ftp:) are common and legitimate
 # in real email (unsubscribe links, contact info) and are not flagged here.
 DANGEROUS_URL_SCHEMES = {'javascript', 'data', 'vbscript'}
+# Handler schemes that open local files/apps (file:, search-ms:, and the ms-* family such as
+# ms-msdt: used by the Follina exploit). Review-level (score 60), not the 100 of inline-content schemes.
+REVIEW_URL_SCHEMES = {'file', 'search-ms', 'search'}
 
 
 def scan_url(value, displayed=''):
@@ -94,6 +97,11 @@ def scan_url(value, displayed=''):
                     'reasons': [f'Non-standard "{scheme}:" URL scheme -- can embed or execute content directly '
                                 'rather than merely link to it, bypassing normal destination review'],
                     'score': 100, 'reputation': 'Not checked', 'length': len(value)}
+        if scheme in REVIEW_URL_SCHEMES or scheme.startswith('ms-'):
+            return {'url': value[:4096], 'domain': '', 'protocol': scheme.upper(), 'displayed': displayed[:200],
+                    'reasons': [f'"{scheme}:" URL scheme launches a local application or file handler '
+                                '(used in document-based exploits); rarely legitimate in email links -- review before trusting'],
+                    'score': 60, 'reputation': 'Not checked', 'length': len(value)}
         raw_host = (parts.hostname or '').lower()
         # A host that fails IDNA encoding (e.g. an empty label like
         # "example..com") is itself a red flag, not a reason to drop the URL
