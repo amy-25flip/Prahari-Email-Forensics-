@@ -1,4 +1,6 @@
+import json
 import pii
+from test_selection import client
 
 
 def _valid_aadhaar():
@@ -92,3 +94,33 @@ def test_sanitize_report_skips_id_and_hash_keys():
     assert out['case_id'] == 'ABCDE1234F' and out['message_id'] == 'ABCDE1234F'
     assert out['report_hash'] == 'ABCDE1234F' and out['sha256'] == 'ABCDE1234F'
     assert out['body'] == 'PAN [PAN REDACTED]'
+
+
+def test_email_masking_is_opt_in_and_keeps_domain():
+    text = 'From: jane.doe@example.com paid via ravi@oksbi'
+    assert pii.sanitize(text) == 'From: jane.doe@example.com paid via [UPI REDACTED]'
+    masked = pii.sanitize(text, emails=True)
+    assert 'j***@example.com' in masked and 'jane.doe' not in masked
+    assert '[UPI REDACTED]' in masked
+
+
+def test_summarize_reports_counts_never_values():
+    report = {'body': 'PAN ABCDE1234F call 9876543210 mail a@b.com', 'sha256': 'x' * 64}
+    off = pii.summarize(report)
+    assert off['masked_counts'] == {'aadhaar': 0, 'pan': 1, 'upi': 0, 'phone': 1}
+    assert off['email_masking'] is False and 'NOT masked' in off['coverage_note']
+    on = pii.summarize(report, emails=True)
+    assert on['masked_counts']['email'] == 1
+    assert 'ABCDE1234F' not in str(on) and '9876543210' not in str(on)
+
+
+def test_export_includes_masking_summary_and_email_masking_is_opt_in(client):
+    from test_selection import HEADERS
+    cid = client.post('/api/samples/account', headers=HEADERS).json()['id']
+    plain = client.get(f'/api/cases/{cid}/export/json').json()
+    assert plain['masking_summary']['email_masking'] is False
+    assert 'email' not in plain['masking_summary']['masked_counts']
+    masked = client.get(f'/api/cases/{cid}/export/json?mask_emails=1').json()
+    assert masked['masking_summary']['email_masking'] is True
+    assert masked['masking_summary']['masked_counts']['email'] > 0
+    assert '***@' in json.dumps(masked)

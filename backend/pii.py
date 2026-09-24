@@ -38,6 +38,11 @@ _UPI = re.compile(r'\b[a-z0-9.\-_]{2,256}@(?:oksbi|okhdfcbank|okaxis|okicici|ybl
                   r'pnb|kotak|federal|idfcfirst|fbl)(?![\w.\-])', re.I)
 _PHONE = re.compile(r'(?<![\d\w])(?:\+?91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}(?!\d)')  # Indian mobile, optional grouping
 
+# Opt-in only: sender/recipient addresses are forensic evidence, so email masking
+# keeps the first character and the whole domain (j***@example.com) -- enough to
+# hide a private individual's identity, not enough to destroy the investigation.
+_EMAIL = re.compile(r'\b([A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]*@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b')
+
 _MASKS = {'aadhaar': '[AADHAAR REDACTED]', 'pan': '[PAN REDACTED]',
           'upi': '[UPI REDACTED]', 'phone': '[PHONE REDACTED]'}
 
@@ -46,14 +51,17 @@ def _mask_aadhaar(match):
     return _MASKS['aadhaar'] if _verhoeff_valid(re.sub(r'\D', '', match.group())) else match.group()
 
 
-def sanitize(text):
-    """Return text with Indian statutory identifiers masked. Non-strings pass through."""
+def sanitize(text, emails=False):
+    """Return text with Indian statutory identifiers masked (and, when
+    emails=True, email local-parts partially masked). Non-strings pass through."""
     if not isinstance(text, str) or not text:
         return text
     text = _AADHAAR.sub(_mask_aadhaar, text)
     text = _PAN.sub(_MASKS['pan'], text)
     text = _UPI.sub(_MASKS['upi'], text)
     text = _PHONE.sub(_MASKS['phone'], text)
+    if emails:
+        text = _EMAIL.sub(lambda m: f'{m.group(1)}***@{m.group(2)}', text)
     return text
 
 
@@ -78,17 +86,45 @@ def _skip(key):
     return k in _SKIP_EXACT or k.endswith('_id') or 'hash' in k or 'sha256' in k
 
 
-def _walk(obj, key=None):
+def _walk(obj, key=None, emails=False):
     if isinstance(obj, dict):
-        return {k: _walk(v, k) for k, v in obj.items()}
+        return {k: _walk(v, k, emails) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_walk(v, key) for v in obj]
+        return [_walk(v, key, emails) for v in obj]
     if isinstance(obj, str) and not _skip(key):
-        return sanitize(obj)
+        return sanitize(obj, emails)
     return obj
 
 
-def sanitize_report(report):
+def _strings(obj, key=None):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _strings(v, k)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _strings(v, key)
+    elif isinstance(obj, str) and not _skip(key):
+        yield obj
+
+
+def summarize(report, emails=False):
+    """Counts (never values) of what sanitize_report will mask in this report."""
+    totals = {'aadhaar': 0, 'pan': 0, 'upi': 0, 'phone': 0}
+    email_count = 0
+    for text in _strings(report):
+        for kind, n in scan(text).items():
+            totals[kind] += n
+        if emails:
+            email_count += len(_EMAIL.findall(text))
+    if emails:
+        totals['email'] = email_count
+    return {'masked_counts': totals, 'email_masking': bool(emails),
+            'coverage_note': 'Best-effort pattern masking of Aadhaar (checksum-validated), PAN, UPI IDs and Indian mobile numbers'
+                             + ('; email local-parts partially masked' if emails else '; email addresses NOT masked (forensic evidence retained)')
+                             + '. Not certified DLP.'}
+
+
+def sanitize_report(report, emails=False):
     """Deep-copy a report and mask Indian PII in every free-text field, leaving
     hashes/case-ids untouched. The stored original is never mutated."""
-    return _walk(copy.deepcopy(report))
+    return _walk(copy.deepcopy(report), emails=emails)

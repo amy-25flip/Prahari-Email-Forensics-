@@ -67,7 +67,7 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 - **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
 - **Campaign correlation:** links related emails by shared indicators and fuzzy body-similarity
 - **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable
-- **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked
+- **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked, optional email masking, and a per-export masking summary
 
 ### Uniqueness Box
 **Most tools block email. PRAHARI investigates it.**
@@ -110,7 +110,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **569 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- **572 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -131,7 +131,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 569 backend tests green
+- 572 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -183,7 +183,7 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 - **Sub-second, network-bounded** when live enrichment (DNS/RDAP/VirusTotal/AbuseIPDB) is switched on - adds real but bounded time, not fixed, since it depends on external API response time
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
-- **0 known vulnerabilities** in a `pip-audit` scan of all 130 Python dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
+- **0 known vulnerabilities** in a `pip-audit` scan of all 130 Python dependencies and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -255,7 +255,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 569 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 572 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -337,6 +337,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 
 **Compliance & Privacy**
 - ✅ DPDP-conscious export masking - Aadhaar (Verhoeff-checksum validated), PAN, UPI, mobile numbers, auto-masked in every export
+- ✅ Optional email-address masking (`j***@domain`, off by default because sender addresses are forensic evidence) and a masking summary in every export - counts of what was masked by type, never the values
 - ✅ Redacted export mode - content/identity withheld, case ID and hash retained
 
 **Real-Time Ingestion**
@@ -359,11 +360,11 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
 - ✅ Mobile-responsive layout and a WCAG-oriented accessibility pass - contrast-corrected text, keyboard navigation and ARIA labels on the evidence graph and icon-only controls
 - ✅ Frontend bundle splitting - main JS chunk cut from ~521 kB to 67 kB via vendor chunking
-- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 130 Python dependencies reports 0 known vulnerabilities
+- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 130 Python dependencies and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 569 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
-- ✅ Multi-round independent AI code review on every change, including an independent adversarial GPT review that caught real follow-up gaps before ship, each with its own regression test
+- ✅ 572 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 13 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
 

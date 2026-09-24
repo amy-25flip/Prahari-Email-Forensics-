@@ -1022,7 +1022,10 @@ def export(cid: str, fmt: str, request: Request):
     # (Aadhaar/PAN/UPI/mobile) in every derivative export. The tamper-evident store
     # keeps the original bytes, so custody is preserved. Best-effort, not certified DLP.
     import pii
-    result = pii.sanitize_report(result)
+    mask_emails = request.query_params.get('mask_emails', '0') == '1'
+    summary = pii.summarize(result, emails=mask_emails)
+    result = pii.sanitize_report(result, emails=mask_emails)
+    result['masking_summary'] = summary
     if fmt == 'json': body, mime = json.dumps(result, indent=2, ensure_ascii=True).encode(), 'application/json'
     elif fmt == 'cef': body, mime = siem.cef(result).encode(), 'text/plain'
     elif fmt == 'csv':
