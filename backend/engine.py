@@ -217,7 +217,9 @@ def analyze(raw, source='upload', live=False, context=None):
         if part.get_filename() or part.get_content_disposition() == 'attachment':
             name = str(part.get_filename() or 'unnamed')
             content_type = part.get_content_type()
-            decoded_qr = qr_detection.decode_qr_payloads(payload) if content_type in qr_detection.IMAGE_CONTENT_TYPES else []
+            if content_type in qr_detection.IMAGE_CONTENT_TYPES: decoded_qr = qr_detection.decode_qr_payloads(payload)
+            elif content_type == 'application/pdf': decoded_qr = qr_detection.decode_pdf_qr_payloads(payload)
+            else: decoded_qr = []
             qr_urls.extend(decoded_qr)
             attachments.append({'name': name[:300], 'type': content_type, 'size': len(payload),
                                 'sha256': hashlib.sha256(payload).hexdigest(),

@@ -41,6 +41,63 @@ def body_similarity(left_text, right_text):
     return len(a & b) / len(a | b)
 
 
+# Two tiers, deliberately conservative and tuned on a small fixture set (heuristic, not
+# calibrated on real traffic): both signals must agree in each tier. The strong tier can
+# group cases into a campaign; the context tier only draws a 'related' link and never
+# merges cases, because two benign emails from one org can share boilerplate.
+COSINE_STRONG, SIMHASH_STRONG = 0.80, 8
+COSINE_CONTEXT, SIMHASH_CONTEXT = 0.55, 20  # simhash is noisy on short reworded text: loose sanity check only
+MIN_SIMILARITY_WORDS = 12
+
+
+def _words(text):
+    """Word tokens with digits/URLs masked, so a template that only swaps names, amounts or
+    links between victims still looks like the same template."""
+    text = re.sub(r'https?://\S+', ' ', text)
+    return re.findall(r'[a-z]{2,}', re.sub(r'\d+', ' ', text))
+
+
+def _idf(token_lists):
+    import math
+    df = {}
+    for tokens in token_lists:
+        for word in set(tokens): df[word] = df.get(word, 0) + 1
+    n = len(token_lists)
+    return {word: math.log((1 + n) / (1 + count)) + 1 for word, count in df.items()}
+
+
+def _tfidf(tokens, idf):
+    import math
+    counts = {}
+    for word in tokens: counts[word] = counts.get(word, 0) + 1
+    return {word: (1 + math.log(count)) * idf.get(word, 1.0) for word, count in counts.items()}
+
+
+def cosine_similarity(left_tokens, right_tokens, idf=None):
+    """TF-IDF cosine over word tokens (sublinear tf)."""
+    import math
+    idf = idf or _idf([left_tokens, right_tokens])
+    a, b = _tfidf(left_tokens, idf), _tfidf(right_tokens, idf)
+    dot = sum(weight * b.get(word, 0.0) for word, weight in a.items())
+    norm = math.sqrt(sum(w * w for w in a.values())) * math.sqrt(sum(w * w for w in b.values()))
+    return dot / norm if norm else 0.0
+
+
+def simhash(tokens):
+    """64-bit SimHash over word tokens weighted by term frequency."""
+    counts = {}
+    for word in tokens: counts[word] = counts.get(word, 0) + 1
+    bits = [0] * 64
+    for word, weight in counts.items():
+        h = int.from_bytes(hashlib.blake2b(word.encode(), digest_size=8).digest(), 'big')
+        for i in range(64): bits[i] += weight if (h >> i) & 1 else -weight
+    return sum(1 << i for i in range(64) if bits[i] > 0)
+
+
+def simhash_distance(left_hash, right_hash):
+    return bin(left_hash ^ right_hash).count('1')
+
+
 def indicators(report):
     found = {(x['type'], x['value']) for x in report.get('indicators', [])}
     address = parseaddr(report.get('sender', ''))[1].lower()
@@ -67,18 +124,31 @@ def build(reports):
             cid = parent[cid]
         return cid
     entries = [(r, indicators(r), _normalize_for_similarity(r)) for r in reports]
+    words = [_words(text) for _, _, text in entries]
+    idf = _idf(words)
+    hashes = [simhash(w) if len(w) >= MIN_SIMILARITY_WORDS else None for w in words]
     for index, (left, left_i, left_text) in enumerate(entries):
-        for right, right_i, right_text in entries[index + 1:]:
+        for offset, (right, right_i, right_text) in enumerate(entries[index + 1:], start=index + 1):
             if left['sha256'] == right['sha256'] or bool(left.get('sample')) != bool(right.get('sample')):
                 continue
             shared = sorted(left_i & right_i)
             similarity = body_similarity(left_text, right_text)
-            fuzzy_match = (similarity >= SIMILARITY_THRESHOLD
-                          and len(left_text) >= MIN_SIMILARITY_TEXT_CHARS and len(right_text) >= MIN_SIMILARITY_TEXT_CHARS)
+            enough_text = len(left_text) >= MIN_SIMILARITY_TEXT_CHARS and len(right_text) >= MIN_SIMILARITY_TEXT_CHARS
+            jaccard_match = similarity >= SIMILARITY_THRESHOLD and enough_text
+            hybrid_note, hybrid_strong = None, False
+            if not jaccard_match and enough_text and hashes[index] is not None and hashes[offset] is not None:
+                cosine = cosine_similarity(words[index], words[offset], idf)
+                distance = simhash_distance(hashes[index], hashes[offset])
+                if cosine >= COSINE_STRONG and distance <= SIMHASH_STRONG:
+                    hybrid_note, hybrid_strong = f'{cosine:.2f} (tf-idf cosine + simhash distance {distance})', True
+                elif cosine >= COSINE_CONTEXT and distance <= SIMHASH_CONTEXT:
+                    hybrid_note = f'{cosine:.2f} (tf-idf cosine + simhash distance {distance}, context only)'
+            fuzzy_match = jaccard_match or hybrid_note is not None
             if not shared and not fuzzy_match: continue
-            strong = fuzzy_match or any(kind in STRONG for kind, _ in shared)
+            strong = jaccard_match or hybrid_strong or any(kind in STRONG for kind, _ in shared)
             evidence = [{'type': k, 'value': v} for k, v in shared]
-            if fuzzy_match: evidence.append({'type': 'body_similarity', 'value': f'{similarity:.2f}'})
+            if jaccard_match: evidence.append({'type': 'body_similarity', 'value': f'{similarity:.2f}'})
+            elif hybrid_note: evidence.append({'type': 'body_similarity', 'value': hybrid_note})
             edges.append({'source': left['id'], 'target': right['id'], 'evidence': evidence,
                           'strength': 'candidate' if strong else 'context_only',
                           'assessment': 'Shared evidence requires analyst confirmation; reported IPs and headers are untrusted.'})

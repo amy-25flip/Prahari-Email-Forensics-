@@ -1,18 +1,19 @@
-"""QR-code decoding for image attachments ("quishing" -- phishing links hidden
+"""QR-code decoding for image and PDF attachments ("quishing" -- phishing links hidden
 inside a QR code image, which text-only scanners never see).
 
 Scope, stated honestly: this decodes QR codes embedded in image attachments
 (PNG/JPEG/GIF/BMP/WEBP) using OpenCV's built-in detector -- no external
-service, no image content leaves the process. It does NOT render PDF pages to
-images or run OCR on arbitrary in-image text; those are separate, larger
-pieces of work (PDF page rasterization needs a rendering library; OCR needs a
-Tesseract-class engine and a real quality benchmark) and are not implemented
-here. Decoded QR payloads are handed to the same URL analyzer already used
+service, no image content leaves the process. PDFs are handled by
+rasterizing only the first few pages at a bounded resolution (pypdfium2) and
+running the same decoder on each page image. It does NOT run OCR on arbitrary
+in-image text -- that needs a Tesseract-class engine and a real quality
+benchmark, and is not implemented here. Decoded QR payloads are handed to the same URL analyzer already used
 for links found in the email body, so a malicious QR destination gets the
 same reputation/structure checks as a normal link -- not a separate, weaker
 code path.
 """
 import struct
+import threading
 
 import cv2
 import numpy as np
@@ -75,6 +76,58 @@ def _declared_pixel_count(data):
     return None
 
 
+MAX_PDF_BYTES = 5 * 1024 * 1024
+PDF_MAX_PAGES = 2
+PDF_RENDER_SCALE = 2.0  # ~144 dpi: enough for a printed/embedded QR, cheap enough to bound
+_pdfium_lock = threading.Lock()  # PDFium is not thread-safe
+
+
+def _decode_array(image):
+    """Try progressively more tolerant decoders; first one that finds anything
+    wins. Rendered PDF pages and resampled images can defeat the plain detector
+    on small/blurry codes that a thresholded or ArUco-based pass still reads."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    attempts = [(cv2.QRCodeDetector, image), (cv2.QRCodeDetector, cv2.cvtColor(otsu, cv2.COLOR_GRAY2BGR))]
+    if hasattr(cv2, 'QRCodeDetectorAruco'):
+        attempts.append((cv2.QRCodeDetectorAruco, image))
+    for factory, candidate in attempts:
+        try:
+            ok, decoded, _points, _straight = factory().detectAndDecodeMulti(candidate)
+        except cv2.error:
+            continue
+        found = [text for text in decoded if text] if ok else []
+        if found:
+            return found
+    return []
+
+
+def decode_pdf_qr_payloads(pdf_bytes):
+    """Return distinct QR payloads found on the first PDF_MAX_PAGES pages, or []
+    on anything unexpected (corrupt, encrypted, oversized, renderer failure).
+    Never raises."""
+    if not pdf_bytes or len(pdf_bytes) > MAX_PDF_BYTES or not pdf_bytes.lstrip()[:5] == b'%PDF-':
+        return []
+    try:
+        import pypdfium2 as pdfium
+        found = []
+        with _pdfium_lock:
+            pdf = pdfium.PdfDocument(pdf_bytes)
+            try:
+                for index in range(min(len(pdf), PDF_MAX_PAGES)):
+                    page = pdf[index]
+                    width, height = page.get_size()
+                    if width * height * PDF_RENDER_SCALE ** 2 > MAX_DECLARED_PIXELS:
+                        continue
+                    rgb = np.array(page.render(scale=PDF_RENDER_SCALE).to_pil().convert('RGB'))
+                    found.extend(_decode_array(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)))
+            finally:
+                pdf.close()
+        return list(dict.fromkeys(found))
+    except Exception:
+        return []
+
+
 def decode_qr_payloads(image_bytes):
     """Return every distinct string decoded from QR codes in an image, or []
     if none are found, the bytes aren't a decodable image, or the image is
@@ -95,11 +148,7 @@ def decode_qr_payloads(image_bytes):
         # any further work on an unexpectedly huge decoded buffer.
         if image.shape[0] * image.shape[1] > MAX_DECLARED_PIXELS:
             return []
-        detector = cv2.QRCodeDetector()
-        ok, decoded, _points, _straight = detector.detectAndDecodeMulti(image)
-        if not ok:
-            return []
-        return list(dict.fromkeys(text for text in decoded if text))
+        return list(dict.fromkeys(_decode_array(image)))
     except Exception:
         # Any OpenCV/decoding failure on hostile or malformed input is a
         # "nothing found" result, never an unhandled exception reaching the

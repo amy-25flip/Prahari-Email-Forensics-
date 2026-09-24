@@ -150,3 +150,48 @@ def test_qr_url_not_starved_by_fifty_body_url_cap():
     result = engine.analyze(raw)
     assert any(u['url'] == 'http://qr-phish.tk/login' for u in result['urls'])
     assert any('QR code in attachment' in f['title'] for f in result['findings'])
+
+
+def _pdf_bytes_with_image(png_bytes, pages=1, image_on_page=1):
+    import io
+    from fpdf import FPDF
+    pdf = FPDF()
+    for page in range(1, pages + 1):
+        pdf.add_page()
+        pdf.set_font('Helvetica', size=12)
+        pdf.cell(0, 10, f'Page {page}: please scan to pay')
+        if page == image_on_page:
+            pdf.image(io.BytesIO(png_bytes), x=30, y=40, w=90)
+    return bytes(pdf.output())
+
+
+def test_decode_pdf_qr_finds_qr_rendered_on_a_page():
+    pdf = _pdf_bytes_with_image(_qr_png_bytes('http://pdf-pay.tk/upi'))
+    assert qr_detection.decode_pdf_qr_payloads(pdf) == ['http://pdf-pay.tk/upi']
+
+
+def test_decode_pdf_qr_empty_for_pdf_without_qr():
+    assert qr_detection.decode_pdf_qr_payloads(_pdf_bytes_with_image(_plain_png_bytes())) == []
+
+
+def test_decode_pdf_qr_only_scans_the_first_pages():
+    pdf = _pdf_bytes_with_image(_qr_png_bytes('http://late-page.tk/x'), pages=4, image_on_page=4)
+    assert qr_detection.PDF_MAX_PAGES == 2
+    assert qr_detection.decode_pdf_qr_payloads(pdf) == []
+
+
+def test_decode_pdf_qr_never_raises_on_garbage_or_oversized():
+    assert qr_detection.decode_pdf_qr_payloads(b'') == []
+    assert qr_detection.decode_pdf_qr_payloads(None) == []
+    assert qr_detection.decode_pdf_qr_payloads(b'not a pdf') == []
+    assert qr_detection.decode_pdf_qr_payloads(b'%PDF-1.7\ngarbage that is not a real pdf') == []
+    assert qr_detection.decode_pdf_qr_payloads(b'%PDF-' + b'\x00' * (qr_detection.MAX_PDF_BYTES + 1)) == []
+
+
+def test_engine_flags_qr_inside_pdf_attachment():
+    pdf = _pdf_bytes_with_image(_qr_png_bytes('http://account-verify.tk/pdf'))
+    raw = _email_with_image_attachment(pdf, filename='invoice.pdf', content_type='application/pdf')
+    result = engine.analyze(raw)
+    assert result['attachments'][0]['qr_payloads'] == ['http://account-verify.tk/pdf']
+    assert any(u['url'] == 'http://account-verify.tk/pdf' for u in result['urls'])
+    assert any('QR code in attachment' in f['title'] for f in result['findings'])

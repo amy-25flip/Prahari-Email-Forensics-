@@ -2,6 +2,7 @@
 import io
 import re
 import zipfile
+import attachment_rules
 import impersonation
 import general_detection
 import routing
@@ -50,6 +51,8 @@ def inspect(raw, report):
         if part.is_multipart() or not (part.get_filename() or part.get_content_disposition()=='attachment'): continue
         payload=part.get_payload(decode=True) or b''
         name=str(part.get_filename() or 'unnamed')[:300]
+        for hit in attachment_rules.scan(name,payload):
+            add('attachment',hit['title'],name+': '+hit['detail']+' ['+hit['id']+']')
         if payload.startswith((b'MZ',b'\x7fELF')):
             add('attachment','Executable attachment content',name+': executable file signature; not executed.')
         if payload.startswith(b'%PDF') and re.search(rb'/(JavaScript|JS|Launch|OpenAction)\b',payload):
@@ -58,6 +61,8 @@ def inspect(raw, report):
             try:
                 with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                     entries=archive.infolist()
+                    for hit in attachment_rules.scan_archive(name,archive):
+                        add('attachment',hit['title'],hit['detail']+' ['+hit['id']+']')
                     if len(entries)>500: add('attachment','Archive inspection limit',name+': more than 500 entries; content was not decompressed.')
                     for entry in entries[:500]:
                         path=entry.filename.lower()
@@ -86,4 +91,4 @@ def inspect(raw, report):
             'category_caveat':'Categories are review hypotheses. Legitimate means no configured adverse evidence, not a safety guarantee.',
             'checks':checks,'origin_confidence':'Undetermined: no independently trusted receiver boundary.',
             'origin_flags':origin_flags,
-            'attachment_scope':'Bounded static signatures and ZIP directory inspection only. No execution, decompression, antivirus verdict or encrypted-content inspection.'}
+            'attachment_scope':'Bounded static signatures, declarative rule matching (rule IDs in each finding) and ZIP directory inspection only. No execution, decompression, antivirus verdict or encrypted-content inspection.'}

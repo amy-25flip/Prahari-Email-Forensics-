@@ -60,12 +60,12 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 - **AI phishing detection:** team-trained BERT, **99.32% held-out accuracy**, hardened against truncation-shift evasion via sliding-window inference (0% -> 95% detection on our own attack re-run - see Slide 3)
 - **Sender authentication:** SPF, DKIM, DMARC (incl. subdomain policy), ARC - all four, not the usual one or two
 - **AI-manipulation detection that resists disguise:** catches hidden prompt-injection and tokenizer-evasion attacks even when hidden behind homoglyphs or zero-width characters
-- **Quishing + BEC defense:** QR codes hidden inside image attachments, plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
+- **Quishing + BEC defense:** QR codes hidden inside image and PDF attachments, plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
 
 **Investigate & Prove**
 - **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB and Tor exit lists
 - **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
-- **Campaign correlation:** links related emails by shared indicators and fuzzy body-similarity
+- **Campaign correlation:** links related emails by shared indicators and a hybrid of character-shingle, TF-IDF and SimHash body-similarity
 - **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable
 - **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked, optional email masking, and a per-export masking summary
 
@@ -110,7 +110,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **572 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- **623 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -131,7 +131,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 572 backend tests green
+- 623 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -165,7 +165,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 ### Planned Enhancements (Next Phase - Research-Informed)
 *Say "planned" or "roadmap" - never "built" or "live." Grounded in 5 papers reviewed Sept 2026 (SAHF-PD, PhishTrace, PhishLumos, PAM 2025, BEC Systematic Review - full citations on Slide 6).*
 
-- PDF-page rasterization + OCR for in-image phishing text (QR-code decoding is already built - this closes the remaining rasterization/OCR gap)
+- OCR for arbitrary in-image phishing text (QR-code decoding in images and PDFs is already built - OCR is the remaining gap)
 - Selective landing-page inspection for unresolved links (isolated worker, no credentials used)
 - Calibrated probability scores (Brier score, reliability diagrams)
 - Learned multimodal fusion model, replacing today's rule-based score caps
@@ -183,7 +183,7 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 - **Sub-second, network-bounded** when live enrichment (DNS/RDAP/VirusTotal/AbuseIPDB) is switched on - adds real but bounded time, not fixed, since it depends on external API response time
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
-- **0 known vulnerabilities** in a `pip-audit` scan of all 130 Python dependencies and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
+- **0 known vulnerabilities** in a `pip-audit` scan of all 141 installed Python packages and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -255,12 +255,12 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 572 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 623 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
 | 8 | User Experience (UX) | 10% | Cross-case evidence graph, conversation-aware BEC checks, analyst notes/assignment and triage workflow - built to be used, not just demoed once |
-| 9 | Future Progression | 5% | Roadmap is explicitly research-grounded (5 papers, Slide 6), not a wishlist - OCR/rasterization, calibrated scoring, multilingual detection |
+| 9 | Future Progression | 5% | Roadmap is explicitly research-grounded (5 papers, Slide 6), not a wishlist - image OCR, calibrated scoring, multilingual detection |
 
 **How to use this table:** if a judge's question maps to one of these rows, answer with the specific thing in that row - not a generic "we built a lot of features" answer. Specificity is what separates a 9 from a 7 on a rubric like this.
 
@@ -283,7 +283,7 @@ A: The push-ingestion path (Gmail Pub/Sub) does, with OIDC-authenticated webhook
 A: No, and we don't claim it is. It's a lightweight, free-text ownership label for solo/small-team triage, not authentication or RBAC. Real multi-analyst access control is explicitly on the roadmap, not claimed as built.
 
 **Q: Bitcoin anchoring - can you prove a case's timestamp right now, live?**
-A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We can show a pre-confirmed proof from earlier testing to demonstrate the full verify flow without waiting on stage.
+A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We submit a real demo proof ahead of time (`demo/bitcoin_proof/`) so a Bitcoin-confirmed proof can be verified live; check its status with `demo_proof.py check` before presenting, and if it has not confirmed yet, say so and show the pending state honestly.
 
 **Q: A prior AI review claimed you fixed a "SQLite deadlock" - did you?**
 A: We stress-tested that exact claim with 20 real concurrent threads and it never reproduced - so we didn't claim a fix for a bug we couldn't confirm existed. We did remove a redundant second database connection in the note/assignment code path as legitimate hardening, but we're precise about the difference between "fixed a proven bug" and "removed a theoretical risk."
@@ -308,7 +308,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Adversarial NLP-evasion detector (homoglyph + zero-width raw-vs-normalized probability delta)
 - ✅ Authentication-aware ML fusion - a content-only signal from a cryptographically verified sender no longer inflates the score
 - ✅ Social-engineering language rules (credential pressure, payment diversion, verification avoidance)
-- ✅ Quishing (QR-in-image) detection - QR codes hidden inside PNG/JPEG/GIF/BMP/WEBP attachments are decoded and scored through the same URL reputation pipeline as a normal link. (PDF-page rasterization and OCR on in-image text are not built - stated honestly, see Roadmap)
+- ✅ Quishing (QR-in-attachment) detection - QR codes hidden inside PNG/JPEG/GIF/BMP/WEBP images and on the first two pages of PDF attachments (rendered at bounded resolution, with tolerant fallback decoders) are decoded and scored through the same URL reputation pipeline as a normal link. (OCR on arbitrary in-image text is not built - stated honestly, see Roadmap)
 - ✅ Conversation-aware BEC detection - flags mid-thread payment/UPI-ID changes, reply-to domain swaps, and thread-history anomalies that a single-email scan can't see
 
 **Authentication & Origin**
@@ -324,11 +324,11 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Domain/DNS/RDAP intelligence
 - ✅ URL structural analysis + PhishTank matching
 - ✅ VirusTotal attachment-hash reputation + opt-in sandbox upload (parallelized lookups)
-- ✅ Static attachment inspection - executable signatures, PDF action markers, Office macros, encryption markers
+- ✅ Static attachment inspection - executable signatures, PDF action markers, Office macros, encryption markers, plus a YARA-style declarative rule set (HTML smuggling, macro auto-exec, RTF exploit objects, .lnk shortcuts, PDF embedded files, encoded script droppers, double extensions, RTL-override filenames, disk images) and archive checks for zip-slip path traversal, zip-bomb expansion ratios and nested archives - every finding carries a rule ID; nothing is executed or decompressed
 
 **Attribution & Evidence**
-- ✅ Attribution Confidence Engine - transparent 0-100 weighted score, hard-capped low when origin is undetermined
-- ✅ Campaign correlation - shared indicators + character-shingle Jaccard fuzzy body-similarity
+- ✅ Attribution Confidence Engine - transparent 0-100 weighted score, hard-capped low when origin is undetermined; validated against a 17-scenario labeled matrix (17/17 in the expected band, 13/13 ordering checks hold - `benchmarks/attribution_validation_matrix.md`). Validates ordering and banding of the hand-set weights, not a calibrated probability
+- ✅ Campaign correlation - shared indicators + a hybrid body-similarity stack: character-shingle Jaccard, TF-IDF cosine and 64-bit SimHash over digit/URL-masked word tokens. Two tiers: both signals agreeing tightly can group cases; a moderate match only draws a context-only link and never merges cases
 - ✅ Cross-case evidence graph - typed nodes (case, sender address/domain, relay IP, URL, attachment hash, reply-to, thread ID) linked by shared indicators, each link tagged `strong` or `context_only` confidence rather than one flat "connected" line
 - ✅ Distinct triage priority states (urgent / review / incomplete / routine) - separate from the uncalibrated evidence score
 - ✅ SHA-256 hash-chained tamper-evident event log with an independent chain-integrity verify check
@@ -358,12 +358,12 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Content-Security-Policy, Strict-Transport-Security and Permissions-Policy headers - CSP live-verified in a real browser against the deployed app's actual map tiles, not just theoretically correct
 - ✅ Dangerous URL schemes (`javascript:`, `data:`, `vbscript:`) explicitly flagged instead of silently dropped
 - ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
-- ✅ Mobile-responsive layout and a WCAG-oriented accessibility pass - contrast-corrected text, keyboard navigation and ARIA labels on the evidence graph and icon-only controls
+- ✅ Mobile-responsive layout and an automated accessibility audit (`security/ACCESSIBILITY_AUDIT.md`): axe-core WCAG 2.1 A/AA clean across 12 UI states, contrast verified on 1,226 text elements (one real failure found and fixed), no horizontal overflow at 375 px. Automated audit only - not a screen-reader test or a WCAG certification
 - ✅ Frontend bundle splitting - main JS chunk cut from ~521 kB to 67 kB via vendor chunking
-- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 130 Python dependencies and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
+- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 141 installed Python packages and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 572 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ 623 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 13 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
@@ -371,7 +371,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 *Grounded in 5 papers reviewed Sept 2026: SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 Enterprise Phishing Networks, BEC Systematic Review (Computers & Security 2025). Full citations on Slide 6.*
 
 **Highest-priority next additions**
-- 🔜 PDF-page rasterization + OCR for in-image phishing text - QR-code decoding inside image attachments is already built (see checklist above); rendering PDF pages to images and reading arbitrary in-image text is the remaining gap
+- 🔜 OCR for arbitrary in-image phishing text - QR-code decoding inside image and PDF attachments is already built (see checklist above); reading free text inside images is the remaining gap
 - 🔜 Selective landing-page inspection for unresolved links - isolated worker, screenshot + credential-form detection, no credentials used
 - 🔜 Learned multimodal fusion model - replacing today's fixed rule-based score caps
 

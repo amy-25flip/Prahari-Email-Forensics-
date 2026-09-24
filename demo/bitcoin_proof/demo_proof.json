@@ -1,0 +1,22 @@
+{
+  "purpose": "Demo: SHA-256 head of a real hash-chained case log, anchored via OpenTimestamps.",
+  "submitted_at": "2026-09-24T12:36:51+05:30",
+  "checkpoint": {
+    "schema": 1,
+    "session_fingerprint": "95e6bda8208f165f44e802fa853807fe07f71e2ad91cd161c7788dae784f78c0",
+    "event_count": 1,
+    "head": "511f97aa97a04e5617c8b4ce5dbd57b9e4f20cab396d55185f764103a3493cd2",
+    "created_at": 1790233606.455022,
+    "scope": "Locally generated checkpoint. Retain separately; not an independent signature or timestamp."
+  },
+  "sha256": "511f97aa97a04e5617c8b4ce5dbd57b9e4f20cab396d55185f764103a3493cd2",
+  "proof": "AE9wZW5UaW1lc3RhbXBzAABQcm9vZgC/ieLohOiSlAEIUR+XqpegTlYXyLTOXb1XueTyDKs5bVUYX3ZBA6NJPNL/8AgnsFuj71PptAjxIFo84NuHF0rDcZ1eVl/Pg133Ta8mlM7uPD+dtPhUtoboCPAQtZGgnZhzsUWu0lXery053QjxIAx60UiJbd4vMfQhjPUa/3YFlV/WivF4s7vPMmeK2u5eCPEgCE5Oxhvm5x+WStbDAKvp9bURu+9XX/35qiF5q3+9YQ0I8QRqtMwH8Ag+GslM6oTN3wCD3+MNLvkMji4taHR0cHM6Ly9hbGljZS5idGMuY2FsZW5kYXIub3BlbnRpbWVzdGFtcHMub3Jn//AQNJUoIeP4VuK2XTYGO4c3agjxIJKmuzvaEaVLY1jjBq4qXY6QjUEAfFvW3TuF96+rpvYsCPEg2s6Ej5rurL+37RlgWO1q5V++eSbuDmHqULGWV7QZ5h0I8CAJSjrjX/OoDb+xgYuh67Xh04nmzXgiCBToOgYMnosj1wjxBGq0zAvwCBStnC6VWv6GAIPf4w0u+QyOIyJodHRwczovL2J0Yy5jYWxlbmRhci5jYXRhbGxheHkuY29t//AIfWkmSxW3+r8I8BBDSLxv0rKwZYvxCn4X2X1OCPAg0sNzJR/sKRiGQZGoFcQh5kjg8vJlolnfsJGwS2CJPfgI8SARSc1OwUXiV12GCIL5nNI4UY2ytAprF0pTgqWkXCLQiQjwII04RgrdRhhoOfA6r55Ki30fHzAR93kCyu6N0k5tJKNgCPEEarTMCPAIAnwIQ5fl88cAg9/jDS75DI4sK2h0dHBzOi8vYm9iLmJ0Yy5jYWxlbmRhci5vcGVudGltZXN0YW1wcy5vcmfwEIf0rGm7U2QetVIXm3DtuXEI8SDRCDFm9r55ZbdNGK3Zraa5+upi48CpHkcGTTqunA5cGwjxBGq0zAnwCOnvGIkn0ltNAIPf4w0u+QyOKShodHRwczovL2Zpbm5leS5jYWxlbmRhci5ldGVybml0eXdhbGwuY29t",
+  "status": "pending",
+  "calendars_used": [
+    "https://a.pool.opentimestamps.org",
+    "https://b.pool.opentimestamps.org",
+    "https://a.pool.eternitywall.com",
+    "https://ots.btc.catallaxy.com"
+  ],
+  "last_checked": "2026-09-24T12:47:56+05:30"
+}

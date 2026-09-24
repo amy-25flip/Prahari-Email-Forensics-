@@ -21,5 +21,6 @@
 .attribution-factors td span{color:#7c8797;margin-left:4px}
 .attribution-factors tr.applied-positive td:first-child{color:#b0e76b}
 .attribution-factors tr.applied-negative td:first-child{color:#f68181}
-.attribution-factors tr.not-applied{opacity:.65}
+.attribution-factors tr.not-applied td{color:#8b93a1}
+.attribution-factors tr.not-applied td strong{font-weight:400}
 .caveat{font-size:13px;font-style:italic;color:#9ca3b0;margin-top:6px}
