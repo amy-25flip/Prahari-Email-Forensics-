@@ -17,5 +17,6 @@ Every finding below came from an independent review pass (Codex/GPT, or the Anti
 | 11 | Antigravity | Missing `set_seed(42)` in training | - | Not a bug | Hugging Face `TrainingArguments` already defaults `seed=42` |
 | 12 | Antigravity | DMARC walk queries `_dmarc.<TLD>` | - | Not a bug | Intentional: RFC 9989 allows public-suffix (`psd`) DMARC records |
 | 13 | Antigravity | "Attribution weights balanced to 100" | - | Inaccurate claim | Weights intentionally sum to 110 and are capped at 100; documented + `test_all_nine_positive_factors_applied_still_caps_at_exactly_100` |
+| 14 | Our own clean-venv audit | Dev-environment `pip-audit` had reported 0 vulnerabilities, but a clean install mirroring the Docker image resolved `setuptools 78.1.0` (4 advisories: CVE-2025-47273, CVE-2026-59890) | Medium | Real | Pinned `setuptools==83.0.0` in `requirements.txt` (torch requires >=77.0.3; imports and `pip check` verified); SBOM, lockfile and audit regenerated from the clean venv |
 
 Known limitations we did not fix: multi-hop proxy chain verification (#6); case ownership is a free-text label, not access control; Gmail Guard depends on Gmail's private page markup.

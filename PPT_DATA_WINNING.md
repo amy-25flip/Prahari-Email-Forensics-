@@ -183,7 +183,7 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 - **Sub-second, network-bounded** when live enrichment (DNS/RDAP/VirusTotal/AbuseIPDB) is switched on - adds real but bounded time, not fixed, since it depends on external API response time
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
-- **0 known vulnerabilities** in a `pip-audit` scan of all 141 installed Python packages and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
+- **0 known vulnerabilities** in a `pip-audit` scan of all 85 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (85 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -360,11 +360,11 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
 - ✅ Mobile-responsive layout and an automated accessibility audit (`security/ACCESSIBILITY_AUDIT.md`): axe-core WCAG 2.1 A/AA clean across 12 UI states, contrast verified on 1,226 text elements (one real failure found and fixed), no horizontal overflow at 375 px. Automated audit only - not a screen-reader test or a WCAG certification
 - ✅ Frontend bundle splitting - main JS chunk cut from ~521 kB to 67 kB via vendor chunking
-- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 141 installed Python packages and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
+- ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
 - ✅ 623 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
-- ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 13 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
+- ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 14 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
 
