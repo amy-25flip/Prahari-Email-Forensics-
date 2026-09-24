@@ -123,7 +123,7 @@ def authenticate(msg, raw, live, source, context=None):
         if remaining <= 0: raise dns.resolver.LifetimeTimeout()
         try:
             answer = dns.resolver.resolve(name, 'TXT', lifetime=min(2, remaining))
-            return [b''.join(r.strings).decode('ascii') for r in answer]
+            return [b''.join(r.strings).decode('ascii', errors='replace') for r in answer]
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer): return []
 
     if context:

@@ -6,11 +6,20 @@
 **PS:** AI-Powered Email Threat Detection, Geo-Location and Forensic Intelligence Platform
 **Theme:** Blockchain & Cybersecurity | **Category:** Software
 
-Use Slides 1-6 below as **slide-ready copy**, not a research dump. Keep lines short, build diagrams around the phrases, and move caveats into speaker notes where the slide is crowded. The **Complete Feature Status Checklist** further down is a reference list for the team (what's built vs. planned) - not meant to go on a slide verbatim.
+Use Slides 1-6 below as **slide-ready copy**, not a research dump. Keep lines short, build diagrams around the phrases, and move caveats into speaker notes where the slide is crowded. Everything after Slide 6 (**Feature Checklist**, **Judging-Criteria Alignment**, **Q&A Cheat Sheet**, **Guardrails**, **Visuals**) is reference material for the team - not meant to go on a slide verbatim.
 
-**Two production tips (free, apply everywhere):**
+**Three production rules, apply everywhere:**
 - Put a tiny **`Built` / `Roadmap`** legend on any slide that mixes both, so nothing reads as vague to a judge.
-- Where possible, narrate the whole deck around **one suspicious email's journey** (arrives -> analyzed -> infrastructure mapped -> evidence sealed -> redacted report exported) instead of listing modules - it's more memorable and doubles as a natural demo script.
+- Narrate the whole deck around **one suspicious email's journey** (arrives -> analyzed -> infrastructure mapped -> evidence sealed -> redacted report exported) instead of listing modules - more memorable, and it doubles as your live demo script.
+- Never let a number on a slide be one you can't defend in Q&A. Every stat in this pack was checked against a live run of the actual app or test suite as of this pass - not estimated from memory. If a judge asks "how do you know," you have a real answer in the Q&A Cheat Sheet. Re-verify anything you change after this point before it goes on stage.
+
+---
+
+## 30-Second Pitch (memorize this cold)
+
+> "One compromised inbox took down public trust in a major Indian bank this year. Most tools just block a suspicious email - we built PRAHARI to investigate it. It reads the email the way a forensic analyst would: verify who really sent it, trace the infrastructure behind it, catch the AI-evasion tricks other scanners miss, link it to other attacks in the same campaign, and seal the whole case with a tamper-evident, blockchain-anchored proof - in under a second. It's not a filter. It's an evidence layer for every SOC and cybercrime cell in the country that can't afford an enterprise forensics suite."
+
+Say this, then go straight to the live demo. Don't explain architecture before a judge has seen the product work.
 
 ---
 
@@ -38,23 +47,27 @@ Visual: clean title slide, product name visible, no extra clutter.
 
 Bank of Baroda, July 2026: public reports described a nearly **1 TB** data leak claim after an employee email-account compromise; the bank said core banking was unaffected.
 
-CERT-In handled **29,44,248 cyber incidents in 2025**.
+CERT-In handled **29,44,248 cyber incidents in 2025.**
 
 ### Solution
 **PRAHARI turns a suspicious email into a forensic case in seconds.**
 
-It detects phishing, authenticates the sender, traces relay infrastructure, scores attribution confidence, and preserves tamper-evident evidence.
+It detects phishing, authenticates the sender, traces relay infrastructure, scores attribution confidence, and preserves tamper-evident evidence - the same discipline a digital forensics lab applies, compressed into one pipeline.
 
 ### What It Does
-- **AI phishing detection:** team-trained BERT, **99.32% held-out accuracy**
-- **Sender authentication:** SPF, DKIM, DMARC, ARC
-- **Relay geo-map:** hop-by-hop infrastructure tracing
-- **URL + attachment intelligence:** PhishTank, VirusTotal, AbuseIPDB, Tor signals
-- **Spoofing + BEC signals:** mismatches, deceptive domains, suspicious language
-- **Campaign correlation:** links related emails by shared indicators
-- **Court-supporting evidence:** SHA-256 chain + Bitcoin timestamp anchor
-- **SOC-ready output:** PDF, JSON, CSV, CEF, Splunk
-- **DPDP-conscious exports:** masks Aadhaar, PAN, UPI and mobile numbers
+
+**Detect & Verify**
+- **AI phishing detection:** team-trained BERT, **99.32% held-out accuracy**, hardened against truncation-shift evasion via sliding-window inference (0% -> 95% detection on our own attack re-run - see Slide 3)
+- **Sender authentication:** SPF, DKIM, DMARC (incl. subdomain policy), ARC - all four, not the usual one or two
+- **AI-manipulation detection that resists disguise:** catches hidden prompt-injection and tokenizer-evasion attacks even when hidden behind homoglyphs or zero-width characters
+- **Quishing + BEC defense:** QR codes hidden inside image attachments, plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
+
+**Investigate & Prove**
+- **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB and Tor exit lists
+- **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
+- **Campaign correlation:** links related emails by shared indicators and fuzzy body-similarity
+- **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable
+- **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked
 
 ### Uniqueness Box
 **Most tools block email. PRAHARI investigates it.**
@@ -62,12 +75,12 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 **AI that detects attacks on AI.** Most phishing tools protect humans from emails; PRAHARI also protects its own automated analyst from hidden instructions and tokenizer tricks designed to fool it.
 
 Novelty:
-- **AI-manipulation detection:** hidden prompt-injection and tokenizer-evasion checks
+- **AI-manipulation detection that resists disguise:** hidden prompt-injection and tokenizer-evasion checks that still fire even when the attack text is hidden behind homoglyphs or padded past a naive model's attention window
 - **Verified-sender mercy:** a scary-looking but DKIM/DMARC-aligned legitimate email is not punished by content alone - careful, not alarmist
 - **Truthful attribution as innovation:** infrastructure + confidence, never a fake attacker identity - more forensic than flashy
 - **Tamper-evident proof:** every case is hash-chained and timestampable
 
-Speaker note: Say "employee email-account compromise," not "confirmed phishing cause." Do not claim human attacker geolocation. Demo order that lands best: open with the Gmail Guard banner (where the user already works), then the dashboard case, then the export - not backend internals first.
+Speaker note: Say "employee email-account compromise," not "confirmed phishing cause." Do not claim human attacker geolocation. Demo order that lands best: open with the Gmail Guard banner (where the user already works), then the dashboard case, then the evidence graph, then the export - not backend internals first.
 
 ---
 
@@ -90,22 +103,23 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 ### Real-Time Ingestion
 - **Gmail Pub/Sub:** automatic inbox analysis
 - **Gmail Guard extension:** live risk banner inside Gmail
-- **Same backend pipeline:** upload, paste, Gmail and extension all converge
+- **Same backend pipeline:** upload, paste, Gmail and extension all converge - one engine, four entry points
 
 ### Tech Stack Strip
 **Python + FastAPI** | **React + Vite** | **BERT / PyTorch** | **SPF/DKIM/DMARC/ARC**
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **419 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
-- Frontend build/lint clean
-- Team-trained phishing model
-- Gmail Guard live-verified
-- Splunk HEC verified
+- **569 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
+- **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
+- CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
+- **Multi-round independent AI code review, not self-graded:** two separate review passes found and closed real gaps (a spoofable rate-limit header, a duplicated security-header bug), every fix backed by a regression test
+- Gmail Guard live-verified against a real Gmail account; Splunk HEC delivery live-verified against a real Splunk Enterprise collector
 
 **Engineering depth, not just feature count:** Gmail Pub/Sub ingestion handles real production weirdness - OIDC-authenticated push, Gmail's own indexing-lag races, a dead-letter retry queue with bounded attempts. That's proof the team handled production conditions, not just toy uploads.
 
-**Complexity with brakes:** the system is complex enough to fuse 7 signal groups, but disciplined enough to cap scores and label uncertainty rather than force a confident-sounding wrong answer.
+**Complexity with brakes:** the system fuses 7 signal groups plus conversation-thread and network-history context, but is disciplined enough to cap scores and label uncertainty rather than force a confident-sounding wrong answer.
 
 Visual: make the pipeline the main graphic. Keep technology as a thin logo strip.
 
@@ -117,7 +131,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 419 backend tests green
+- 569 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -151,10 +165,9 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 ### Planned Enhancements (Next Phase - Research-Informed)
 *Say "planned" or "roadmap" - never "built" or "live." Grounded in 5 papers reviewed Sept 2026 (SAHF-PD, PhishTrace, PhishLumos, PAM 2025, BEC Systematic Review - full citations on Slide 6).*
 
-- QR-code / image / PDF-embedded phishing detection (OCR + QR decode)
-- Conversation-aware BEC detection (payment-detail changes, reply-to swaps, thread anomalies)
+- PDF-page rasterization + OCR for in-image phishing text (QR-code decoding is already built - this closes the remaining rasterization/OCR gap)
 - Selective landing-page inspection for unresolved links (isolated worker, no credentials used)
-- Calibrated probability scores (Brier score, reliability diagrams) + formal evidence graph
+- Calibrated probability scores (Brier score, reliability diagrams)
 - Learned multimodal fusion model, replacing today's rule-based score caps
 
 Phrase to use: **"Truthful forensics beats fake certainty."**
@@ -166,11 +179,11 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 ### Impact Numbers
 **Seconds, not guesswork.**
 
-- **~50 ms local median analysis**
-- **~0.6 s with live enrichment**
-- **7 scored evidence groups**, plus enrichment/attribution/campaign layers, converging into one verdict
-- **99.32% held-out ML accuracy**
-- **0.49% held-out false-positive rate**
+- **~50-65 ms median analysis time (p95 under 80 ms), server-measured** with the BERT model loaded, on the local-only path (no live enrichment) - two 100-run benchmarks (engine-only and full API path incl. case storage), raw data in `benchmarks/`; exact figure varies with machine load
+- **Sub-second, network-bounded** when live enrichment (DNS/RDAP/VirusTotal/AbuseIPDB) is switched on - adds real but bounded time, not fixed, since it depends on external API response time
+- **99.32% held-out ML accuracy, 0.49% false-positive rate**
+- **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
+- **0 known vulnerabilities** in a `pip-audit` scan of all 130 Python dependencies; CycloneDX SBOMs generated for both backend (133 components) and frontend (59 components)
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -233,6 +246,53 @@ Only add **Live Web App** if actually deployed.
 
 ---
 
+## Judging-Criteria Alignment (Internal - Use to Prep, Don't Put On a Slide)
+
+SIH judges score against a fixed rubric. Here's what to point to for each criterion, using only things that are actually built and tested - nothing aspirational.
+
+| # | Criterion | Weight | What to point to |
+|---|---|---|---|
+| 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
+| 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
+| 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 569 automated tests, modular swappable pipeline |
+| 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
+| 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
+| 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
+| 8 | User Experience (UX) | 10% | Cross-case evidence graph, conversation-aware BEC checks, analyst notes/assignment and triage workflow - built to be used, not just demoed once |
+| 9 | Future Progression | 5% | Roadmap is explicitly research-grounded (5 papers, Slide 6), not a wishlist - OCR/rasterization, calibrated scoring, multilingual detection |
+
+**How to use this table:** if a judge's question maps to one of these rows, answer with the specific thing in that row - not a generic "we built a lot of features" answer. Specificity is what separates a 9 from a 7 on a rubric like this.
+
+---
+
+## Judge Q&A Cheat Sheet (The Hard Questions, Answered Honestly)
+
+Every one of these was actually asked or actually investigated during development - not hypothetical. Answer directly; don't get defensive. Honesty here is a strength, not a weakness - it's what separates a real prototype from a slide deck.
+
+**Q: How do we know your attribution weights (summing to 110, not 100) aren't arbitrary?**
+A: The 9 positive factors intentionally sum to 110, with the final score capped at `min(100, ...)`. That's deliberate headroom: a case missing one weak signal (e.g. geolocation, worth only 5 points) can still reach a perfect 100 instead of being permanently capped below it for one unavailable, low-value factor. It's a documented design choice, tested (`test_all_nine_positive_factors_applied_still_caps_at_exactly_100`), not an oversight.
+
+**Q: Your rate-limiting trusts a reverse proxy's forwarded-IP header - isn't that spoofable?**
+A: Only when explicitly enabled (`TRUSTED_PROXY_HOPS` opt-in, off by default) and only from a direct connection in an IP allowlist (`TRUSTED_PROXY_IPS`) - fails closed otherwise. An unrecognized direct connection's forged header is never trusted. (Known scope limit: a multi-hop proxy chain isn't yet individually verified per-hop - fine for our actual single-proxy deployment, flagged as the next hardening step.)
+
+**Q: Does Gmail Guard use an official Gmail API?**
+A: The push-ingestion path (Gmail Pub/Sub) does, with OIDC-authenticated webhooks. The browser-extension banner reads Gmail's own page markup to show a live risk score inline - that's inherently coupled to Gmail's frontend, which we say plainly rather than oversell as an official integration. It's live-verified today; the Pub/Sub path is the production-grade one.
+
+**Q: Is "case assignment" real access control?**
+A: No, and we don't claim it is. It's a lightweight, free-text ownership label for solo/small-team triage, not authentication or RBAC. Real multi-analyst access control is explicitly on the roadmap, not claimed as built.
+
+**Q: Bitcoin anchoring - can you prove a case's timestamp right now, live?**
+A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We can show a pre-confirmed proof from earlier testing to demonstrate the full verify flow without waiting on stage.
+
+**Q: A prior AI review claimed you fixed a "SQLite deadlock" - did you?**
+A: We stress-tested that exact claim with 20 real concurrent threads and it never reproduced - so we didn't claim a fix for a bug we couldn't confirm existed. We did remove a redundant second database connection in the note/assignment code path as legitimate hardening, but we're precise about the difference between "fixed a proven bug" and "removed a theoretical risk."
+
+**Q: How real is your 99.32% accuracy?**
+A: It's a held-out test-split result on 33,527 emails the model never trained on, from an exact-deduplicated random split - a legitimate number, not a real-world guarantee. We haven't yet run a campaign-held-out or near-duplicate-safe benchmark (template-level near-duplicates across campaigns could still leak signal between train and test) - that's explicitly on our own roadmap, not swept under the rug. Real-world traffic will also drift from any training distribution; that's exactly why the pipeline never lets the ML score stand alone - it's fused with cryptographic sender authentication.
+
+---
+
 ## Complete Feature Status Checklist (Master Reference)
 
 **This is a reference list, not slide copy.** Pull only 4-6 items per slide (see Slide 2/3/4 above). Two tiers, never mix them on a slide or in a demo:
@@ -242,16 +302,20 @@ Only add **Live Web App** if actually deployed.
 ### ✅ Built & Verified Today
 
 **Detection**
-- ✅ Team-trained BERT phishing classifier - 99.32% accuracy, 0.49% false-positive rate, 33,527 held-out test emails
-- ✅ AI-manipulation / prompt-injection detection (hidden CSS, zero-width Unicode) - 51 tests
+- ✅ Team-trained BERT phishing classifier - 99.32% accuracy, 0.49% false-positive rate, 33,527 held-out test emails (exact-dedup random split; a campaign/near-duplicate-held-out benchmark is on the roadmap, not yet run)
+- ✅ Sliding-window inference defeats truncation-shift evasion - the model used to only see the first 256 tokens; padding an email with junk text pushed the real payload out of view entirely. Overlapping windows across the full message closed this: detection on the team's own attack re-run went from 0/100 to 95/100
+- ✅ AI-manipulation / prompt-injection detection (hidden CSS, zero-width Unicode) - now also checks a homoglyph-normalized copy of the text, closing a Cyrillic-lookalike disguise gap the raw-text check alone missed
 - ✅ Adversarial NLP-evasion detector (homoglyph + zero-width raw-vs-normalized probability delta)
 - ✅ Authentication-aware ML fusion - a content-only signal from a cryptographically verified sender no longer inflates the score
 - ✅ Social-engineering language rules (credential pressure, payment diversion, verification avoidance)
+- ✅ Quishing (QR-in-image) detection - QR codes hidden inside PNG/JPEG/GIF/BMP/WEBP attachments are decoded and scored through the same URL reputation pipeline as a normal link. (PDF-page rasterization and OCR on in-image text are not built - stated honestly, see Roadmap)
+- ✅ Conversation-aware BEC detection - flags mid-thread payment/UPI-ID changes, reply-to domain swaps, and thread-history anomalies that a single-email scan can't see
 
 **Authentication & Origin**
-- ✅ Full SPF, DKIM, DMARC (RFC 9989), ARC (RFC 8617) verification
+- ✅ Full SPF, DKIM, DMARC (RFC 9989, incl. subdomain `sp` policy per RFC 7489 S6.6.3), ARC (RFC 8617) verification
 - ✅ Trust-boundary separation: receiver-attested "earliest reliable node" kept distinct from the header-reported chain
 - ✅ Every relay hop explicitly labeled "receiver trust not established" unless attested
+- ✅ Network-behavior-over-time tracking - compares a sender's first/last-seen relay and reputation history across cases in the current session, not just a single external lookup
 
 **Infrastructure & Reputation**
 - ✅ Relay geolocation (IP/ISP/ASN, source + timestamp recorded per lookup)
@@ -265,6 +329,7 @@ Only add **Live Web App** if actually deployed.
 **Attribution & Evidence**
 - ✅ Attribution Confidence Engine - transparent 0-100 weighted score, hard-capped low when origin is undetermined
 - ✅ Campaign correlation - shared indicators + character-shingle Jaccard fuzzy body-similarity
+- ✅ Cross-case evidence graph - typed nodes (case, sender address/domain, relay IP, URL, attachment hash, reply-to, thread ID) linked by shared indicators, each link tagged `strong` or `context_only` confidence rather than one flat "connected" line
 - ✅ Distinct triage priority states (urgent / review / incomplete / routine) - separate from the uncalibrated evidence score
 - ✅ SHA-256 hash-chained tamper-evident event log with an independent chain-integrity verify check
 - ✅ Bitcoin-blockchain anchoring via OpenTimestamps
@@ -279,36 +344,46 @@ Only add **Live Web App** if actually deployed.
 - ✅ "Gmail Guard" browser extension - live-verified end-to-end against real Gmail, in-page risk banner
 
 **Reporting & SOC Integration**
-- ✅ PDF / JSON / CSV / CEF exports
+- ✅ PDF (with real Unicode/Devanagari text shaping - Hindi renders correctly, not as `?`) / JSON / CSV / CEF exports
 - ✅ Live-verified Splunk HEC delivery
 - ✅ Case list, single-case view, campaign/connection view, review-and-acknowledge workflow
 
+**Investigation Workflow**
+- ✅ Full-text case search across subject, sender, recipient, findings and indicators - not just a client-side filter on the summary list
+- ✅ Analyst notes per case, with a live character-count hint on the verification note field
+- ✅ Case ownership / assignment label for solo/small-team triage (not access control - see Q&A Cheat Sheet)
+
+**Security Hardening**
+- ✅ Content-Security-Policy, Strict-Transport-Security and Permissions-Policy headers - CSP live-verified in a real browser against the deployed app's actual map tiles, not just theoretically correct
+- ✅ Dangerous URL schemes (`javascript:`, `data:`, `vbscript:`) explicitly flagged instead of silently dropped
+- ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
+- ✅ Mobile-responsive layout and a WCAG-oriented accessibility pass - contrast-corrected text, keyboard navigation and ARIA labels on the evidence graph and icon-only controls
+- ✅ Frontend bundle splitting - main JS chunk cut from ~521 kB to 67 kB via vendor chunking
+- ✅ CycloneDX SBOMs generated for backend (133 components) and frontend (59 components); `pip-audit` over all 130 Python dependencies reports 0 known vulnerabilities
+
 **Engineering Quality**
-- ✅ 419 automated backend tests, frontend build/lint clean
-- ✅ Multi-round independent AI code review on every change
+- ✅ 569 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ Multi-round independent AI code review on every change, including an independent adversarial GPT review that caught real follow-up gaps before ship, each with its own regression test
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
 
 *Grounded in 5 papers reviewed Sept 2026: SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 Enterprise Phishing Networks, BEC Systematic Review (Computers & Security 2025). Full citations on Slide 6.*
 
 **Highest-priority next additions**
-- 🔜 QR-code / image / PDF-embedded phishing detection (OCR + QR decode) - closes today's text-only blind spot
-- 🔜 Conversation-aware BEC detection - payment-detail changes, reply-to swaps, thread-history anomalies
+- 🔜 PDF-page rasterization + OCR for in-image phishing text - QR-code decoding inside image attachments is already built (see checklist above); rendering PDF pages to images and reading arbitrary in-image text is the remaining gap
 - 🔜 Selective landing-page inspection for unresolved links - isolated worker, screenshot + credential-form detection, no credentials used
-- 🔜 Formal evidence graph across campaigns - typed nodes/edges (email/domain/URL/IP/certificate/hash) with per-link confidence
 - 🔜 Learned multimodal fusion model - replacing today's fixed rule-based score caps
 
 **Foundation hardening**
 - 🔜 Independent, near-duplicate-safe evaluation suite - our own training script already flags that exact-dedup alone doesn't catch template-level near-duplicates; next step is campaign/source-held-out benchmarks
 - 🔜 Calibrated probability scores (Brier score, reliability diagrams) - today's states are distinct, but the score itself stays uncalibrated
 - 🔜 Evidence-linked explanations - stable finding IDs that reference exact source location
-- 🔜 Network-behavior-over-time tracking - our own first/last-seen history, not just a single external lookup
+- 🔜 Persistent, cross-session network-behavior history - today's version compares within the current session's stored cases only
 
 **Additional roadmap items**
 - 🔜 India-specific curated brand/UPI reference set for impersonation detection (the similarity-check mechanism already exists; the curated list doesn't ship by default)
-- 🔜 Multilingual / code-mixed detection (Hindi + regional languages)
-- 🔜 Broader adversarial-robustness testing (paraphrase, padding, truncation attacks - beyond today's homoglyph/zero-width coverage)
-- 🔜 Full-text case search, analyst notes, ownership/assignment
+- 🔜 Multilingual / code-mixed phishing *detection* (Hindi + regional languages) - export rendering already handles Devanagari correctly; the ML classifier itself is still English-trained
+- 🔜 Broader adversarial-robustness testing (paraphrase attacks - beyond today's truncation-shift, homoglyph and zero-width coverage)
 - 🔜 Async job pipeline for slow enrichment (OCR, page-fetch) with retries and resilience
 - 🔜 Role-based access control for multi-analyst teams
 - 🔜 Analyst feedback capture + drift monitoring + controlled retraining
@@ -330,6 +405,7 @@ Keep these in speaker notes or Q&A answers.
 - Gmail Guard is live-verified but depends on Gmail's private frontend markup.
 - DPDP masking is best-effort protection, not certified DLP.
 - VirusTotal/AbuseIPDB are optional enrichments; the core pipeline still works without them.
+- Case ownership/assignment is a triage label, not real access control.
 
 ---
 
@@ -340,6 +416,8 @@ Keep these in speaker notes or Q&A answers.
 3. **Risk vs solution:** compromised inbox vs PRAHARI case file
 4. **Hash-chain proof:** one edited block breaks the chain
 5. **Live product screenshot:** Gmail Guard + dashboard
+6. **Cross-case evidence graph screenshot:** a real campaign's typed node/edge map (sender -> domain -> relay IP -> URL), strong vs context-only links visually distinct - this is the single most "wow" screenshot in the product, use it big
+7. **Conversation BEC panel screenshot:** the exact moment a mid-thread payment/UPI-ID change gets flagged - pairs well with a BEC-loss statistic from Slide 6
 
 **Favorite idea if there's time to build it: an "Evasion Lab" demo panel.** Show the raw phishing probability next to the homoglyph/zero-width-normalized probability side by side for one crafted email, with a plain verdict: "model resisted" or "model fooled." The line that lands: *"Even when the AI isn't fooled, the attempt itself becomes evidence."* Novel, honest, visual, and hard to forget - `result['adversarial']` already computes this data, so it's a UI panel, not new backend logic.
 
