@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+import datetime
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -363,6 +364,8 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
             result['triage'].update(priority='review', label='Review required',
                                    reasons=['Supplemental header, identity or attachment checks require review.'],
                                    action='Review the static findings before opening attachments or approving sensitive requests.')
+        import playbook
+        result['assessment']['playbook'] = playbook.build(result)
         result['elapsed_ms'] = round((time.perf_counter() - started) * 1000)
         result['sample'] = sample
         result['fraud_score'] = result['score']
@@ -1060,6 +1063,14 @@ def export(cid: str, fmt: str, request: Request):
     result['masking_summary'] = summary
     result['export_schema'] = 1
     if fmt == 'json': body, mime = json.dumps(result, indent=2, ensure_ascii=True).encode(), 'application/json'
+    elif fmt == 'stix':
+        import stix_export
+        created = datetime.datetime.fromtimestamp(float(result.get('created') or time.time()), datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        body, mime = json.dumps(stix_export.build(result, cid, created), indent=2, ensure_ascii=True).encode(), 'application/json'
+    elif fmt == 'evidence':
+        import evidence_pack
+        body = evidence_pack.build(result, cid, store.case_events(request.state.sid, cid), store.verify(request.state.sid), mask_emails).encode('utf-8')
+        mime = 'text/markdown; charset=utf-8'
     elif fmt == 'cef': body, mime = siem.cef(result).encode(), 'text/plain'
     elif fmt == 'csv':
         stream = io.StringIO(newline='')
@@ -1180,8 +1191,9 @@ def export(cid: str, fmt: str, request: Request):
         for limitation in result['limitations']: line(limitation)
         line('Local hash verification is tamper-evident, not proof of legal admissibility or independent custody.')
         body, mime = bytes(pdf.output()), 'application/pdf'
-    else: raise HTTPException(400, 'Choose json, csv, pdf or cef')
-    return Response(body, media_type=mime, headers={'Content-Disposition': f'attachment; filename="case-{cid}.{fmt}"'})
+    else: raise HTTPException(400, 'Choose json, csv, pdf, cef, stix or evidence')
+    extension = {'stix': 'stix.json', 'evidence': 'evidence.md'}.get(fmt, fmt)
+    return Response(body, media_type=mime, headers={'Content-Disposition': f'attachment; filename="case-{cid}.{extension}"'})
 
 
 DIST = Path(__file__).resolve().parents[1] / 'frontend' / 'dist'

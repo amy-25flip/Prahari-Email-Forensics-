@@ -24,3 +24,10 @@
 .attribution-factors tr.not-applied td{color:#8b93a1}
 .attribution-factors tr.not-applied td strong{font-weight:400}
 .caveat{font-size:13px;font-style:italic;color:#9ca3b0;margin-top:6px}
+.playbook-steps{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+.playbook-step{display:grid;gap:4px;padding:10px 12px;border:1px solid #292d36;border-left-width:3px;border-radius:6px;background:#0d0f17}
+.playbook-step.now{border-left-color:#f68181}.playbook-step.next{border-left-color:#e6b16f}.playbook-step.record{border-left-color:#8b93a1}
+.playbook-tag{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9ca3b0}
+.playbook-step.now .playbook-tag{color:#f68181}.playbook-step.next .playbook-tag{color:#e6b16f}
+.playbook-step strong{font-size:12px;font-weight:500;line-height:1.5}
+.playbook-step small{color:#9ca3b0;line-height:1.5}

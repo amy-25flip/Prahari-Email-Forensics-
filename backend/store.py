@@ -175,6 +175,17 @@ def get_owner(sid, cid, db=None):
         return _query(conn)
 
 
+def case_events(sid, cid):
+    """Hash-chained custody events that concern one case (analyze, notes, assignment, review, delete)."""
+    events = []
+    with connect() as db:
+        for row in db.execute('SELECT seq, payload, previous, hash FROM events WHERE session=? ORDER BY seq', (sid,)):
+            event = json.loads(row['payload'])
+            if event.get('id') == cid:
+                events.append({'seq': row['seq'], 'previous': row['previous'], 'hash': row['hash'], 'event': event})
+    return events
+
+
 def delete(sid, cid):
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')

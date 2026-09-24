@@ -66,8 +66,8 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 - **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB and Tor exit lists
 - **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
 - **Campaign correlation:** links related emails by shared indicators and a hybrid of character-shingle, TF-IDF and SimHash body-similarity
-- **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable
-- **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked, optional email masking, and a per-export masking summary
+- **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable - plus a one-click electronic-evidence support pack (manifest, hashes, custody trail, draft declaration for a human signer)
+- **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, STIX 2.1 (MISP-importable), Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked, optional email masking, and a per-export masking summary
 
 ### Uniqueness Box
 **Most tools block email. PRAHARI investigates it.**
@@ -76,6 +76,7 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 
 Novelty:
 - **AI-manipulation detection that resists disguise:** hidden prompt-injection and tokenizer-evasion checks that still fire even when the attack text is hidden behind homoglyphs or padded past a naive model's attention window
+- **Three separate outputs, never one blended number:** evidence score (how bad is the content), attribution confidence (how much to trust the infrastructure trace) and review priority (what an analyst should do first) - each with its own caveat, so uncertainty in one never inflates another
 - **Verified-sender mercy:** a scary-looking but DKIM/DMARC-aligned legitimate email is not punished by content alone - careful, not alarmist
 - **Truthful attribution as innovation:** infrastructure + confidence, never a fake attacker identity - more forensic than flashy
 - **Tamper-evident proof:** every case is hash-chained and timestampable
@@ -110,7 +111,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **633 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- **642 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -131,7 +132,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 633 backend tests green
+- 642 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -255,7 +256,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 633 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 642 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -339,6 +340,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ DPDP-conscious export masking - Aadhaar (Verhoeff-checksum validated), PAN, UPI, mobile numbers, auto-masked in every export
 - ✅ Optional email-address masking (`j***@domain`, off by default because sender addresses are forensic evidence) and a masking summary in every export - counts of what was masked by type, never the values
 - ✅ Redacted export mode - content/identity withheld, case ID and hash retained
+- ✅ Electronic-evidence support pack (Markdown, one click) - case manifest, SHA-256 of the original message and report, the hash-chained custody trail for that case, method statement, limitations, and a DRAFT declaration table for a human signer. Support material only: it does not certify admissibility and the certificate format must be confirmed with counsel
 
 **Real-Time Ingestion**
 - ✅ Gmail Pub/Sub server-side push ingestion - live-verified on a real account
@@ -347,11 +349,13 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 **Reporting & SOC Integration**
 - ✅ PDF (with real Unicode/Devanagari text shaping - Hindi renders correctly, not as `?`) / JSON / CSV / CEF exports - the CSV is sectioned (indicators, findings, URLs, authentication, attachments) with spreadsheet-formula-injection neutralised, and JSON exports carry a schema version
 - ✅ Live-verified Splunk HEC delivery
+- ✅ STIX 2.1 export - a bundle of only the adverse indicators (risky URLs, mismatched reply addresses, flagged attachment hashes, Tor-matched relays), TLP:AMBER marked, no message content, deterministic IDs. Validated with the reference `stix2` library and `stix2-patterns` (bundle parses, every pattern valid, including hostile-quoting cases). Not yet exercised against a live MISP instance
 - ✅ Case list, single-case view, campaign/connection view, review-and-acknowledge workflow
 
 **Investigation Workflow**
 - ✅ Full-text case search across subject, sender, recipient, findings and indicators - not just a client-side filter on the summary list
 - ✅ Analyst notes per case, with a live character-count hint on the verification note field
+- ✅ Evidence-driven next-step playbook - every suggested action (verify out-of-band, block link destinations, quarantine attachments, preserve evidence, report to CERT-In / the 1930 cyber-fraud helpline) appears only when the case contains the evidence that triggers it, and states why. Suggestions, not automated actions
 - ✅ Case ownership / assignment label for solo/small-team triage (not access control - see Q&A Cheat Sheet)
 
 **Security Hardening**
@@ -363,7 +367,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 633 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ 642 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 14 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
@@ -376,6 +380,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - 🔜 Learned multimodal fusion model - replacing today's fixed rule-based score caps
 
 **Foundation hardening**
+- 🔜 Live MISP / TAXII exchange (today: STIX 2.1 file export only)
 - 🔜 Independent, near-duplicate-safe evaluation suite - our own training script already flags that exact-dedup alone doesn't catch template-level near-duplicates; next step is campaign/source-held-out benchmarks
 - 🔜 Calibrated probability scores (Brier score, reliability diagrams) - today's states are distinct, but the score itself stays uncalibrated
 - 🔜 Evidence-linked explanations - stable finding IDs that reference exact source location
