@@ -16,14 +16,29 @@ def test_precedence_and_undetermined():
     assert classification.classify(ok)['primary'] == 'legitimate'
 
 
-def test_synthetic_fixture_evaluation():
+def test_synthetic_fixture_evaluation(monkeypatch):
+    monkeypatch.delenv('DISABLE_ML', raising=False)   # other test modules disable the model process-wide
+    import importlib
     import local_model
+    importlib.reload(local_model)          # other tests patch the model state; start from a clean load
     local_model.load()
     if local_model.classify('Your order has shipped.').get('status') != 'ready':
-        pytest.skip('BERT model not available in this test process')
-    conf, _ = run_five_class.run()
+        pytest.skip('BERT model not available in this test process: ' + str(local_model.classify('x').get('detail')))
+    try:
+        conf, _ = run_five_class.run()
+    finally:
+        monkeypatch.setenv('DISABLE_ML', '1')
+        local_model.load()
     stats = run_five_class.per_class(conf)
     assert stats['accuracy'] >= 0.8
     for cls in ('phishing', 'fraud_related', 'impersonated'):
         assert stats[cls]['recall'] >= 0.8, cls
     assert stats['legitimate']['recall'] >= 0.6
+
+
+def test_expiry_lure_needs_link_and_unauthenticated_sender():
+    base = {'findings': [{'title': 'Account-expiry pressure', 'points': 10}], 'score': 10, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': ''}
+    lure = dict(base, urls=[{'url': 'http://x.example'}], authentication={'dmarc': {'status': 'none'}})
+    assert classification.classify(lure)['primary'] == 'phishing'
+    assert classification.classify(dict(lure, authentication={'dmarc': {'status': 'pass'}}))['primary'] == 'suspicious'
+    assert classification.classify(dict(lure, urls=[]))['primary'] == 'suspicious'

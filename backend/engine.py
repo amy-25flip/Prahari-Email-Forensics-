@@ -285,6 +285,8 @@ def analyze(raw, source='upload', live=False, context=None):
     brand_checks = brands.assess(msg.get('From'), msg.get('Reply-To'), [u.get('domain', '') for u in urls.values()])
     for check in brand_checks[:4]:
         flag('identity', 'Look-alike domain' if check['kind'] == 'lookalike_domain' else 'Display-name brand spoofing', check['detail'], 15 if check['kind'] == 'lookalike_domain' else 10)
+    homoglyphs = brands.homoglyph_display(parseaddr(str(msg.get('From', '')))[0])
+    if homoglyphs: flag('identity', 'Homoglyph display name', 'Display name mixes Latin letters with look-alike characters from another script (' + ', '.join(homoglyphs) + '); it reads as a brand name but is not the plain ASCII text.', 15)
     auth = authenticate(msg, raw, live, source, context)
     if auth['dkim']['status'] == 'fail': flag('authentication', 'DKIM signature failed', auth['dkim']['detail'], 15)
     if auth['spf']['status'] == 'fail': flag('authentication', 'SPF evaluation failed', auth['spf']['detail'], 15)
@@ -304,6 +306,7 @@ def analyze(raw, source='upload', live=False, context=None):
                  'scanners that never inspect the image would miss this ("quishing").', 15)
     for title, pattern in [('Credential pressure', r'(verify.{0,40}(account|password)|account.{0,30}suspend)'),
                            ('Payment diversion', r'(bank account.{0,25}chang|transfer the payment|updated bank details)'),
+                           ('Account-expiry pressure', r'((?:your|account|mailbox|e-?mail)\s+(?:account\s+)?password[^\n.]{0,40}expir|password[^\n.]{0,20}(?:has\s+)?expired|(?:mailbox|e-?mail account)[^\n.]{0,50}(?:suspend|deactivat|is full|storage)|failed[^\n.]{0,20}(?:email|mail)[^\n.]{0,15}deliver|(?:incoming|pending)\s+(?:messages?|mails?)[^\n.]{0,40}(?:held|not delivered))'),
                            ('Verification avoidance', r'(do not (call|contact)|bypass.{0,25}approval|keep this confidential)')]:
         match = re.search(pattern, analysis_body, re.I | re.S)
         if match: flag('language', title, match[0] + (' (read from an image by OCR)' if ocr_text and match[0] in ocr_text and match[0] not in body else ''), 10)

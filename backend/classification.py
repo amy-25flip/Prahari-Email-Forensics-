@@ -6,6 +6,7 @@ listed as secondary):
   1 phishing       - phishing-feed match, credential-pressure wording, or a QR/suspicious link combined with credential or
                      lookalike-domain evidence. A high model probability alone (no corroborating rule)
                      yields 'suspicious', never 'phishing'
+                     (also: password-expiry / undelivered-mail lure with a link from a sender that is not DMARC-authenticated)
   2 fraud_related  - payment diversion, verification avoidance, gift-card/advance-fee/extortion wording, payment-detail change
   3 impersonated   - lookalike domain, brand display-name spoofing, protected-identity mismatch, or DMARC failure together with
                      a Reply-To/display-name mismatch (DMARC failure alone is NOT enough: forwarding breaks alignment)
@@ -18,7 +19,7 @@ PHISH_TITLES = {'PhishTank URL match', 'Historical phishing-feed match', 'Creden
                 'QR code in attachment decodes to a link', 'Suspicious URL structure'}
 FRAUD_TITLES = {'Payment diversion', 'Verification avoidance'}
 FRAUD_KEYWORDS = ('gift card', 'advance fee', 'lottery', 'inheritance', 'blackmail', 'extortion', 'bitcoin ransom')
-IMPERSONATION_TITLES = {'Look-alike domain', 'Display-name brand spoofing', 'Protected identity address mismatch', 'Protected-domain resemblance'}
+IMPERSONATION_TITLES = {'Homoglyph display name', 'Look-alike domain', 'Display-name brand spoofing', 'Protected identity address mismatch', 'Protected-domain resemblance'}
 
 
 def classify(report):
@@ -31,10 +32,12 @@ def classify(report):
     for f in findings:
         t = f['title']
         if t in PHISH_TITLES:
-            if t == 'Suspicious URL structure' and not (titles & {'Credential pressure', 'Look-alike domain', WEAK_PHISH}): continue
+            if t == 'Suspicious URL structure' and not (titles & {'Credential pressure', 'Look-alike domain', 'Account-expiry pressure'}): continue
             evidence['phishing'].append(t)
         elif t in FRAUD_TITLES: evidence['fraud_related'].append(t)
         elif t in IMPERSONATION_TITLES: evidence['impersonated'].append(t)
+    authenticated = report.get('authentication', {}).get('dmarc', {}).get('status') == 'pass'
+    if 'Account-expiry pressure' in titles and report.get('urls') and not authenticated: evidence['phishing'].append('Account-expiry lure with link, sender not authenticated')
     if any(k in text for k in FRAUD_KEYWORDS): evidence['fraud_related'].append('Fraud-scheme wording')
     if dmarc_fail and titles & {'Reply-To domain differs', 'Display-name brand spoofing'}: evidence['impersonated'].append('DMARC failure with identity mismatch')
     for cls in evidence: evidence[cls] = sorted(set(evidence[cls]))

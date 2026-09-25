@@ -38,76 +38,76 @@
     "evidence_score_ge_25": {
       "tp": 146,
       "fn": 4,
-      "fp": 120,
-      "tn": 180,
-      "precision": 0.5489,
+      "fp": 119,
+      "tn": 181,
+      "precision": 0.5509,
       "recall": 0.9733,
-      "f1": 0.7019,
-      "false_positive_rate": 0.4,
+      "f1": 0.7036,
+      "false_positive_rate": 0.3967,
       "per_corpus_flagged": {
         "phishing-2025 (Nazario)": "146/150",
         "spamassassin easy_ham 2003": "31/150",
-        "spamassassin hard_ham 2003": "89/150"
+        "spamassassin hard_ham 2003": "88/150"
       }
     },
     "evidence_score_ge_45": {
-      "tp": 39,
-      "fn": 111,
-      "fp": 25,
-      "tn": 275,
-      "precision": 0.6094,
-      "recall": 0.26,
-      "f1": 0.3645,
-      "false_positive_rate": 0.0833,
+      "tp": 40,
+      "fn": 110,
+      "fp": 24,
+      "tn": 276,
+      "precision": 0.625,
+      "recall": 0.2667,
+      "f1": 0.3738,
+      "false_positive_rate": 0.08,
       "per_corpus_flagged": {
-        "phishing-2025 (Nazario)": "39/150",
+        "phishing-2025 (Nazario)": "40/150",
         "spamassassin easy_ham 2003": "6/150",
-        "spamassassin hard_ham 2003": "19/150"
+        "spamassassin hard_ham 2003": "18/150"
       }
     },
     "evidence_score_ge_60_gateway_hold": {
       "tp": 9,
       "fn": 141,
-      "fp": 6,
-      "tn": 294,
-      "precision": 0.6,
+      "fp": 5,
+      "tn": 295,
+      "precision": 0.6429,
       "recall": 0.06,
-      "f1": 0.1091,
-      "false_positive_rate": 0.02,
+      "f1": 0.1098,
+      "false_positive_rate": 0.0167,
       "per_corpus_flagged": {
         "phishing-2025 (Nazario)": "9/150",
         "spamassassin easy_ham 2003": "1/150",
-        "spamassassin hard_ham 2003": "5/150"
+        "spamassassin hard_ham 2003": "4/150"
       }
     },
     "primary_class_threat": {
-      "tp": 11,
-      "fn": 139,
-      "fp": 7,
-      "tn": 293,
-      "precision": 0.6111,
-      "recall": 0.0733,
-      "f1": 0.131,
-      "false_positive_rate": 0.0233,
+      "tp": 10,
+      "fn": 140,
+      "fp": 1,
+      "tn": 299,
+      "precision": 0.9091,
+      "recall": 0.0667,
+      "f1": 0.1242,
+      "false_positive_rate": 0.0033,
       "per_corpus_flagged": {
-        "phishing-2025 (Nazario)": "11/150",
+        "phishing-2025 (Nazario)": "10/150",
         "spamassassin easy_ham 2003": "1/150",
-        "spamassassin hard_ham 2003": "6/150"
+        "spamassassin hard_ham 2003": "0/150"
       }
     },
     "primary_or_suspicious": {
       "tp": 147,
       "fn": 3,
-      "fp": 200,
-      "tn": 100,
-      "precision": 0.4236,
+      "fp": 199,
+      "tn": 101,
+      "precision": 0.4249,
       "recall": 0.98,
-      "f1": 0.5915,
-      "false_positive_rate": 0.6667,
+      "f1": 0.5927,
+      "false_positive_rate": 0.6633,
       "per_corpus_flagged": {
         "phishing-2025 (Nazario)": "147/150",
         "spamassassin easy_ham 2003": "98/150",
-        "spamassassin hard_ham 2003": "102/150"
+        "spamassassin hard_ham 2003": "101/150"
       }
     }
   },

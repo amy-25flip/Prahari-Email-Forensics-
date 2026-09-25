@@ -42,3 +42,10 @@ def test_ordinary_words_and_vendor_infrastructure_not_flagged():
     assert not brands.assess('x <a@example.org>', None, ['apply.com', 'ample.com', 'maple.com', 'googleadservices.com', 'fonts.googleapis.com', 's3.amazonaws.com'])
     assert ('lookalike_domain', 'PayPal') in kinds('x <a@paypa1.com>')
     assert not brands.assess('Amazon <bounce@amazonses.com>', None, [])
+
+
+def test_homoglyph_display_name():
+    assert brands.homoglyph_display('W\u0435llsf\u0430rgo Bank')
+    assert not brands.homoglyph_display('Wells Fargo Bank')
+    assert not brands.homoglyph_display('\u0418\u0432\u0430\u043d \u041f\u0435\u0442\u0440\u043e\u0432')     # pure Cyrillic name
+    assert not brands.homoglyph_display('Ren\u00e9e Zellweger')                                       # accents are not another script's confusables

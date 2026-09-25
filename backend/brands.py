@@ -21,6 +21,8 @@ GLOBAL = [
     ('Flipkart', ['flipkart.com'], ['flipkart']),
     ('DHL', ['dhl.com'], ['dhl']),
 ]
+GENERIC_NAME_WORDS = {'support', 'team', 'alerts', 'alert', 'bank', 'online', 'customer', 'care', 'security', 'notification', 'notifications', 'service', 'services',
+                      'help', 'helpdesk', 'inc', 'ltd', 'india', 'pay', 'account', 'accounts', 'no', 'reply', 'noreply', 'of', 'the', 'and', 'via', 'official', 'update', 'billing'}
 LURE = re.compile(r'login|secure|verify|verif|support|account|bank|pay|update|kyc|billing|alert|refund|helpdesk|service|online|customer|care')
 SHORT_TOKENS = {'State Bank of India': ['sbi'], 'HDFC Bank': ['hdfc'], 'ICICI Bank': ['icici'], 'Axis Bank': ['axisbank'],
                 'Kotak Mahindra Bank': ['kotak'], 'Paytm': ['paytm'], 'PhonePe': ['phonepe'], 'Income Tax Department': ['incometax'],
@@ -46,7 +48,7 @@ def _match(host, name, domains, tokens):
     try: shown = label.encode('ascii').decode('idna')
     except UnicodeError: shown = label
     skel = adversarial.skeleton(shown).lower()
-    legit_labels = {_label(d) for d in domains}
+    legit_labels = {_label(d) for d in domains[:2]}          # primary domains only: generic infrastructure words (windows, azure) are not brand names
     if label in legit_labels:
         return 'same brand name under a different domain suffix'
     if skel in legit_labels:
@@ -88,7 +90,11 @@ def assess(sender, reply_to, url_hosts):
         shown = adversarial.skeleton(display).lower()
         if display and source and not _legit(source, every):
             words = [name.lower()] + tokens
-            if any(re.search(r'(?<![a-z0-9])' + re.escape(w) + r'(?![a-z0-9])', shown) for w in words if len(w) >= 3):
+            leftover = shown
+            for w in sorted(words, key=len, reverse=True):
+                leftover = re.sub(r'(?<![a-z0-9])' + re.escape(w) + r'(?![a-z0-9])', ' ', leftover)
+            leftover = [x for x in re.findall(r'[a-z0-9]+', leftover) if x not in GENERIC_NAME_WORDS]
+            if len(leftover) <= 1 and leftover != [shown] and any(re.search(r'(?<![a-z0-9])' + re.escape(w) + r'(?![a-z0-9])', shown) for w in words if len(w) >= 3):
                 checks.append({'kind': 'display_name_spoof', 'brand': name, 'host': source, 'where': 'display name',
                                'detail': f'Display name invokes {name} but the sender domain {source} is not one of its known domains.'})
     seen, out = set(), []
@@ -96,3 +102,15 @@ def assess(sender, reply_to, url_hosts):
         key = (c['kind'], c['brand'], c['host'])
         if key not in seen: seen.add(key); out.append(c)
     return out[:20]
+
+
+def homoglyph_display(display):
+    """A display name that mixes Latin letters with look-alike characters from another script (e.g. Cyrillic a/e/o inside 'Bank'),
+    which reads as a brand name to a person but is not the ASCII string. Pure non-Latin names are not flagged."""
+    words = []
+    for word in re.findall(r'\S+', str(display or '')):
+        latin = any('a' <= c.lower() <= 'z' for c in word)
+        folded = adversarial.skeleton(word)
+        if latin and folded != word and any(ord(c) > 127 for c in word):
+            words.append(word)
+    return words[:3]

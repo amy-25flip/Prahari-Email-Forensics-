@@ -41,7 +41,7 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 
 ## 5b. Alerts before interaction, roles and audit
 - **Pre-delivery gateway (opt-in):** an SMTP endpoint (aiosmtpd) analyses each message before any mailbox, delivers clean mail with X-PRAHARI headers, and holds urgent or score-60+ mail in a quarantine with hold/release/discard logged in the audit chain. Analysis exceptions hold the message; capacity/storage failures answer SMTP 451 so the sender retries. Proven over real SMTP in tests and in the running app. It is a gateway model for an institution's own mail flow, not a Gmail interception.
-- **Inside Gmail:** the extension's banner, plus a click-time confirmation dialog once a high-risk verdict is installed (best effort, not a security boundary). Optional Gmail label/quarantine actions (reversible; never delete/trash/send; needs gmail.modify) are unit-tested against a fake Gmail service only and are NOT verified live.
+- **Inside Gmail:** the extension's banner, plus a click-time confirmation dialog once a high-risk verdict is installed (best effort, not a security boundary). Optional Gmail label/quarantine actions (reversible; never delete/trash/send; needs gmail.modify) are unit-tested against a fake Gmail service and were tried by hand on a live Gmail account by the team (manual check, not in the automated suite).
 - **Roles (opt-in, `ROLE_TOKENS`):** per-person bearer tokens with viewer/analyst/admin roles enforced on every route (unknown writes default to admin), shared authenticated workspace, per-person rate limits, actor-stamped audit events (chain still verifies), and a four-eyes rule. Application-level access control, not SSO or legal identity.
 
 ## 6. Privacy, security and engineering
@@ -57,7 +57,7 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 | Backend automated tests | 769 passing | `pytest backend` |
 | ML accuracy / false-positive rate | 99.32% / 0.49% on 33,527 held-out emails | `training_report.json` |
 | Truncation-evasion detection | 0/100 -> 95/100 | team attack script re-run |
-| Local analysis latency (BERT loaded, no enrichment) | ~50-65 ms median, p95 < 80 ms | `benchmarks/` (2 x 100 runs) |
+| Local analysis latency (BERT loaded, no enrichment) | ~70-75 ms median, p95 ~90 ms (re-measured 2026-09-25) | `benchmarks/` (2 x 100 runs) |
 | Live enrichment latency | ~1.1-1.4 s first lookup; ~35 ms cached | `benchmarks/enrichment_timing.json` |
 | Attribution matrix | 17/17 scenarios, 13/13 orderings | `benchmarks/attribution_validation_matrix.md` |
 | Gmail Guard, Splunk HEC | live-verified against a real Gmail account and a real Splunk Enterprise collector | `PS_PROGRESS.md` |
