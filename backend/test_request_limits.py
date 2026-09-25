@@ -57,7 +57,7 @@ def test_health_and_ready_remain_exempt_from_peer_limit(client):
 
 
 def test_peer_identity_ignores_forwarded_header_by_default(monkeypatch):
-    # Regression (Antigravity-flagged, real): behind a reverse proxy,
+    # Regression: behind a reverse proxy,
     # request.client.host is always the PROXY's own address, so every real
     # user shared one rate-limit bucket. But blindly trusting
     # X-Forwarded-For instead would be a WORSE, trivially exploitable
@@ -108,7 +108,7 @@ def test_peer_identity_falls_back_to_direct_when_header_absent(monkeypatch):
 
 
 def test_peer_identity_ignores_xff_from_an_untrusted_direct_peer_even_with_hops_set(monkeypatch):
-    # Regression (Codex Medium): TRUSTED_PROXY_HOPS alone previously trusted
+    # Regression: TRUSTED_PROXY_HOPS alone previously trusted
     # XFF from ANY direct connection once set, with no check on who actually
     # made it -- an attacker reaching this app directly (bypassing the real
     # proxy, e.g. a network misconfiguration) could set an arbitrary XFF and
@@ -141,7 +141,7 @@ def test_security_headers_on_html_and_errors(client):
 
 
 def test_csp_header_present_on_every_response(client):
-    # Regression (Antigravity-flagged, real): no Content-Security-Policy at
+    # Regression: no Content-Security-Policy at
     # all was previously sent. img-src explicitly allows tile.openstreetmap.org
     # -- the ONE external resource the built frontend actually loads
     # (RelayMap.jsx's Leaflet tile layer) -- verified against the real,

@@ -47,7 +47,7 @@ from local_model import _phishing_label_index, MIN_TEMPERATURE, MAX_TEMPERATURE 
 
 MODEL_DIR = Path(__file__).parent / "output" / "phishing-bert-v1" / "final"
 CALIBRATION_PATH = MODEL_DIR / "calibration.json"
-# Codex review: a raw `scaled_brier < raw_brier` gate would write the file for
+# a raw `scaled_brier < raw_brier` gate would write the file for
 # a difference like 0.05004 vs 0.05005 -- numerically lower on one sample, not
 # a "demonstrable" improvement. Require a minimum absolute margin instead.
 MIN_BRIER_IMPROVEMENT = 0.001

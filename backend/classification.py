@@ -21,6 +21,9 @@ PHISH_TITLES = {'PhishTank URL match', 'Historical phishing-feed match', 'Creden
                 'QR code in attachment decodes to a link', 'Suspicious URL structure'}
 CORROBORATED = {'Suspicious URL structure', 'QR code in attachment decodes to a link'}     # never decide phishing on their own
 URGENCY = re.compile(r'expired|expires? today|today|immediately|within \d+ ?(?:hours?|hrs)|24 hours|1 day|suspend|deactivat|is full|not delivered|were held|are held', re.I)
+FILE_SHARE = re.compile(r'\b(?:shared (?:document|file|folder)|document (?:has been )?shared|view (?:the )?(?:document|file)|secure document|onedrive|sharepoint|google docs?)\b', re.I)
+MAILBOX_LURE = re.compile(r'\b(?:mailbox|quota|storage|voicemail|voice mail|e-?fax|delivery failure|undelivered|failed delivery|messages? held|incoming messages?)\b', re.I)
+PAYMENT_NOTICE = re.compile(r'\b(?:invoice|payment notification|remittance|statement|purchase order|po attached|billing notice)\b', re.I)
 FRAUD_TITLES = {'Payment diversion', 'Verification avoidance'}
 FRAUD_KEYWORDS = ('gift card', 'advance fee', 'lottery', 'inheritance', 'blackmail', 'extortion', 'bitcoin ransom')
 IMPERSONATION_TITLES = {'Homoglyph display name', 'Look-alike domain', 'Display-name brand spoofing', 'Protected identity address mismatch', 'Protected-domain resemblance'}
@@ -42,9 +45,16 @@ def classify(report):
             evidence['phishing'].append(t)
         elif t in FRAUD_TITLES: evidence['fraud_related'].append(t)
         elif t in IMPERSONATION_TITLES: evidence['impersonated'].append(t)
-    if 'Account-expiry pressure' in titles and report.get('urls') and not authenticated and URGENCY.search(text): evidence['phishing'].append('Account-expiry lure with link, sender not authenticated')
+    has_link = bool(report.get('urls'))
+    unauthenticated = not authenticated
+    if 'Account-expiry pressure' in titles and has_link and unauthenticated and URGENCY.search(text): evidence['phishing'].append('Account-expiry lure with link, sender not authenticated')
+    if has_link and unauthenticated and FILE_SHARE.search(text): evidence['phishing'].append('Shared-document lure with link, sender not authenticated')
+    if has_link and unauthenticated and MAILBOX_LURE.search(text): evidence['phishing'].append('Mailbox/voicemail/delivery lure with link, sender not authenticated')
+    if has_link and unauthenticated and PAYMENT_NOTICE.search(text): evidence['fraud_related'].append('Invoice/payment-notification lure with link, sender not authenticated')
     if any(k in text for k in FRAUD_KEYWORDS): evidence['fraud_related'].append('Fraud-scheme wording')
-    if dmarc_fail and titles & {'Reply-To domain differs', 'Display-name brand spoofing'}: evidence['impersonated'].append('DMARC failure with identity mismatch')
+    if dmarc_fail and titles & {'Reply-To domain differs', 'Return-Path domain differs', 'Display-name brand spoofing'}: evidence['impersonated'].append('DMARC failure with identity mismatch')
+    if unauthenticated and has_link and (titles & {'Reply-To domain differs', 'Return-Path domain differs'}) and (FILE_SHARE.search(text) or MAILBOX_LURE.search(text) or PAYMENT_NOTICE.search(text)):
+        evidence['impersonated'].append('Identity mismatch combined with a lure')
     for cls in evidence: evidence[cls] = sorted(set(evidence[cls]))
     active = [c for c in ('phishing', 'fraud_related', 'impersonated') if evidence[c]]
     if active:

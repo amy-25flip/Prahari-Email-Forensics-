@@ -61,7 +61,7 @@ def test_missing_subject_or_body_does_not_crash():
 
 
 def test_nan_subject_or_body_treated_same_as_missing():
-    # Regression (Codex High): a pandas float NaN is truthy in Python, so
+    # Regression: a pandas float NaN is truthy in Python, so
     # `value or ""` silently embeds the literal string "nan" instead of
     # treating it as missing -- the exact bug train_phishing_model.py's
     # _dedup_key already had to fix with pd.isna(). A NaN field and a real

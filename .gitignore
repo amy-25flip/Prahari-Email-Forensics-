@@ -10,25 +10,10 @@ frontend/.vite/
 .pytest_cache/
 .pytest_tmp/
 backend/.pytest_tmp/
-backend/tmp-pytest-codex-gmail/
 .env
 .env.*
 *.eml
 backend/serve_local.py
-# Scratch AI-review logs and prompts that accumulate in the repo root as a
-# working audit trail -- deliberately never part of a commit (a stray `git add .`
-# must not stage them).
-codex_*.md
-codex_*.txt
-codex_*.log
-agy_*.txt
-agy_*.md
-agy_*.err
-agy_*.log
-gemini_*.md
-gemini_*.err
-antigravity_*.md
-antigravity_*.err
 .claude/
 training/output/
 backend/gmail_oauth_client.json

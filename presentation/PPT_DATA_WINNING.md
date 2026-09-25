@@ -17,7 +17,7 @@ Use Slides 1-6 below as **slide-ready copy**, not a research dump. Keep lines sh
 
 ## 30-Second Pitch (memorize this cold)
 
-> "One compromised inbox took down public trust in a major Indian bank this year. Most tools just block a suspicious email - we built PRAHARI to investigate it. It reads the email the way a forensic analyst would: verify who really sent it, trace the infrastructure behind it, catch the AI-evasion tricks other scanners miss, link it to other attacks in the same campaign, and seal the whole case with a tamper-evident, blockchain-anchored proof - in well under a second locally, about a second with live enrichment. It's not a filter. It's an evidence layer for every SOC and cybercrime cell in the country that can't afford an enterprise forensics suite."
+> "One compromised inbox took down public trust in a major Indian bank this year. Most tools just block a suspicious email - we built PRAHARI to investigate it. It reads the email the way a forensic analyst would: verify who really sent it, trace the infrastructure behind it, catch the AI-evasion tricks other scanners miss, link it to other attacks in the same campaign, and seal the whole case with a tamper-evident, blockchain-anchored proof - in well under a second locally, and a few seconds with live enrichment. It's not a filter. It's an evidence layer for every SOC and cybercrime cell in the country that can't afford an enterprise forensics suite."
 
 Say this, then go straight to the live demo. Don't explain architecture before a judge has seen the product work.
 
@@ -45,26 +45,41 @@ Visual: clean title slide, product name visible, no extra clutter.
 ### Hook
 **One compromised employee inbox can become a national-scale breach.**
 
-Bank of Baroda, July 2026: public reports described a nearly **1 TB** data leak claim after an employee email-account compromise; the bank said core banking was unaffected.
+Bank of Baroda, July 2026: the bank confirmed unauthorized access to certain data after an employee email account was compromised, and said core banking was unaffected. The widely reported nearly **1 TB** figure was an unverified threat-actor claim. (Context only: this does not show phishing was the cause, or that PRAHARI would have prevented it.)
 
 CERT-In handled **29,44,248 cyber incidents in 2025.**
 
 ### Solution
-**PRAHARI turns a suspicious email into a forensic case in seconds.**
+**One suspicious email becomes an explainable forensic case, in seconds.**
 
 It detects phishing, authenticates the sender, traces relay infrastructure, scores attribution confidence, and preserves tamper-evident evidence - the same discipline a digital forensics lab applies, compressed into one pipeline.
 
-### What It Does
+### What It Does (8 bullets on the slide - each one line)
+
+- **AI phishing detection:** team-trained BERT, 99.32% on our random held-out split (independent test on Slide 3)
+- **Sender authentication:** SPF, DKIM, DMARC and ARC, all four
+- **AI-manipulation detection:** catches prompt-injection and homoglyph / zero-width evasion aimed at the analyst's own AI
+- **Image, QR and BEC defense:** reads text and QR codes hidden in images and PDFs; flags mid-thread payment changes
+- **Relay tracing:** geo-map with Tor, botnet and reputation matching, plus who-to-contact investigator leads
+- **Attribution confidence + campaign correlation:** infrastructure and confidence, never a fake attacker identity
+- **Tamper-evident evidence:** SHA-256 hash chain with a Bitcoin timestamp anchor; DPDP-masked PDF / STIX / SIEM exports
+- **Alerts before delivery:** an SMTP gateway holds high-risk mail before any mailbox (a gateway model, not Gmail interception)
+
+#### Speaker notes / reference (not on the slide)
+Everything below is built and verified, but stays out of the slide body so the slide stays readable. Pull one or two into the spoken pitch or the Q&A when relevant.
 
 **Detect & Verify**
 - **AI phishing detection:** team-trained BERT, **99.32% held-out accuracy**, hardened against truncation-shift evasion via sliding-window inference (0% -> 95% detection on our own attack re-run - see Slide 3)
 - **Sender authentication:** SPF, DKIM, DMARC (incl. subdomain policy), ARC - all four, not the usual one or two
 - **AI-manipulation detection that resists disguise:** catches hidden prompt-injection and tokenizer-evasion attacks even when hidden behind homoglyphs or zero-width characters
 - **Quishing + image-only phishing + BEC defense:** QR codes and readable text hidden inside image and PDF attachments (OCR, English/Latin script), plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
+- **Brand and lookalike defense:** a curated table of Indian banks, government and payment services (plus a few global brands) catches lookalike domains, homoglyph brand names and display-name spoofing on the sender, Reply-To and links
 - **Language-aware verdicts:** detects Hindi, Hinglish, code-mixed and regional-script text, tells the analyst when the English-trained model is outside its validated coverage, and applies transparent localized phishing rules
 
 **Investigate & Prove**
-- **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB and Tor exit lists
+- **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB, Tor exit lists and public botnet / hijacked-netblock feeds (abuse.ch Feodo, Spamhaus DROP)
+- **Five-class assessment:** every case gets a primary class (legitimate / suspicious / impersonated / phishing / fraud-related) from a documented decision table over model, authentication and rule evidence, with the deciding evidence listed
+- **Investigator leads:** registrar and network-owner abuse contacts from public registry records - who to contact for a takedown or legal request, never who the sender is
 - **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
 - **Campaign correlation:** links related emails by shared indicators and a hybrid of character-shingle, TF-IDF and SimHash body-similarity
 - **Alerts before delivery:** a pre-delivery SMTP gateway analyses mail before any mailbox sees it, holds high-risk messages for analyst release or discard, and stamps clean ones with risk headers (a locally testable gateway model, not a Gmail integration)
@@ -80,11 +95,10 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 **AI that detects attacks on AI.** Most phishing tools protect humans from emails; PRAHARI also protects its own automated analyst from hidden instructions and tokenizer tricks designed to fool it.
 
 Novelty:
+- **Three questions, three separate outputs:** *How concerning are the signals?* (evidence score) *How far should the analyst trust the infrastructure trace?* (attribution confidence) *What should the analyst handle first?* (review priority). Each has its own caveat, so uncertainty in one never inflates another - and infrastructure is never presented as a person
 - **AI-manipulation detection that resists disguise:** hidden prompt-injection and tokenizer-evasion checks that still fire even when the attack text is hidden behind homoglyphs or padded past a naive model's attention window
-- **Three separate outputs, never one blended number:** evidence score (how bad is the content), attribution confidence (how much to trust the infrastructure trace) and review priority (what an analyst should do first) - each with its own caveat, so uncertainty in one never inflates another
 - **Verified-sender mercy:** a scary-looking but DKIM/DMARC-aligned legitimate email is not punished by content alone - careful, not alarmist
 - **Truthful attribution as innovation:** infrastructure + confidence, never a fake attacker identity - more forensic than flashy
-- **Tamper-evident proof:** every case is hash-chained and timestampable
 
 Speaker note: Say "employee email-account compromise," not "confirmed phishing cause." Do not claim human attacker geolocation. Demo order that lands best: open with the Gmail Guard banner (where the user already works), then the dashboard case, then the evidence graph, then the export - not backend internals first.
 
@@ -116,7 +130,8 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **799 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
+- **99.32% on a random, de-duplicated held-out split (33,527 emails) - not a real-world guarantee.** On an independent external test (public corpora not used in training) the classifier caught 98% of 2025 phishing and also flagged 37% of 2003 legitimate mail, mostly newsletters; retraining with modern legitimate mail is our next step (`benchmarks/external_evaluation.md`)
+- **808 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 9/9 tests passing (including the click-time warning)
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -126,6 +141,8 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **Engineering depth, not just feature count:** Gmail Pub/Sub ingestion handles real production weirdness - OIDC-authenticated push, Gmail's own indexing-lag races, a dead-letter retry queue with bounded attempts. That's proof the team handled production conditions, not just toy uploads.
 
 **Complexity with brakes:** the system fuses 7 signal groups plus conversation-thread and network-history context, but is disciplined enough to cap scores and label uncertainty rather than force a confident-sounding wrong answer.
+
+**Demo path:** suspicious email -> evidence and authentication state -> relay map -> exported forensic case.
 
 Visual: make the pipeline the main graphic. Keep technology as a thin logo strip.
 
@@ -137,7 +154,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 799 backend tests green
+- 808 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -148,7 +165,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 | Challenge | Our Strategy |
 |---|---|
 | VPN/Tor/proxy hides source | Report infrastructure honestly; never invent a person |
-| ML false positives | Fuse model output with email authentication |
+| ML false positives | Fuse model output with email authentication; model-only cases are labelled as leads, not verdicts; retraining on modern legitimate mail is planned |
 | API latency/outage | Timeouts, cache, safe `unavailable` states |
 | Evidence tampering | SHA-256 chain + Bitcoin timestamp anchor |
 | Real-world model drift | Analyst review + retraining-ready dataset pipeline |
@@ -173,6 +190,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 
 - OCR for Indic scripts (Hindi and regional languages) - today's OCR reads English/Latin script only
 - Rendered-page screenshots and visual brand matching for landing pages (today: static, script-free inspection)
+- Validate on newer, campaign-separated datasets, especially modern legitimate newsletters, and run an authorized institutional pilot that measures analyst review time and false alarms
 - Calibrated probability scores (Brier score, reliability diagrams)
 - Learned multimodal fusion model, replacing today's rule-based score caps
 - SSO/OIDC identity for roles (today: per-person bearer tokens) and an automated live-Gmail regression test (the Gmail actions and click warning were tried by hand on a live account, but the test suite only covers a fake Gmail service)
@@ -187,10 +205,10 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 **Seconds, not guesswork.**
 
 - **~70-75 ms median analysis time (p95 about 90 ms), server-measured** with the BERT model loaded, on the local-only path (no live enrichment) - two 100-run benchmarks (engine-only and full API path incl. case storage), raw data in `benchmarks/`; re-measured 2026-09-25 after the newest features (brand checks, known-bad feeds, OCR); exact figure varies with machine load
-- **~1-1.5 s for a first-time live enrichment** (DNS/RDAP/geo/AbuseIPDB, measured before the known-bad feed and investigator-lead lookups were added, across six real domains - `benchmarks/enrichment_timing.json`), and back to ~35 ms for repeat lookups thanks to caching. Network-dependent, so quote it as "about a second," not a guarantee
+- **Live enrichment: ~2-4 s for fresh live checks, ~50 ms cached** (DNS/RDAP/geolocation/Tor/botnet feeds/investigator leads, measured 2026-09-25 against real services on six real domains, no paid-API keys): median 4.0 s for the first request in a fresh process, median 1.9 s for later new domains once feeds are warm (worst 4.0 s), and median 50.5 ms for repeat lookups from cache. Network-dependent - `benchmarks/live_enrichment_timing.json`
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
-- **0 known vulnerabilities** in a `pip-audit` scan of all 96 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (85 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
+- **0 known vulnerabilities** in a `pip-audit` scan of all 96 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (96 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -213,7 +231,7 @@ Closing line:
 
 **PRAHARI: from inbox alert to defensible evidence.**
 
-Speaker note: 99.32% is a held-out test-split result, not a real-world guarantee. On an independent external test the classifier caught 98% of 2025 phishing but also flagged 37% of 2003 legitimate mail (mostly newsletters) - say this before a judge asks.
+Speaker note - SAY THIS ALOUD BEFORE A JUDGE ASKS: "99.32% is our held-out test-split result. On an independent external test we measured 98% recall on 2025 phishing but a 37% false-flag rate on 2003 newsletters, and retraining with modern legitimate mail is our next step." It is not a real-world guarantee. On that independent external test the classifier caught 98% of 2025 phishing but also flagged 37% of 2003 legitimate mail (mostly newsletters) - say this before a judge asks.
 
 ---
 
@@ -226,9 +244,9 @@ Use compact references with QR/link row.
 2. **FBI IC3 BEC PSA** - US $55.5B exposed BEC losses, Oct 2013-Dec 2023
    https://www.ic3.gov
 3. **CERT-In / PIB 2025 cyber-incident data** - 29,44,248 incidents handled
-   https://www.pib.gov.in
-4. **Bank of Baroda July 2026 incident reports** - employee email-account compromise and public data-leak claims
-   Sources: Indian Express / Economic Times / bank disclosure
+   https://www.pib.gov.in/PressReleasePage.aspx?PRID=2244504&lang=1&reg=3
+4. **Bank of Baroda July 2026 incident reports** - confirmed employee email-account compromise; the ~1 TB figure is an unverified claim
+   https://indianexpress.com/article/technology/tech-news-technology/bank-of-baroda-confirms-security-incident-data-breach-hackers-10805797/lite/
 5. **Email authentication standards** - SPF, DKIM, DMARC, ARC
    RFC 7208, RFC 6376, RFC 9989, RFC 8617
 6. **BERT** - Devlin et al., 2019
@@ -262,7 +280,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 799 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 808 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -292,6 +310,15 @@ A: The roles are real, the case-assignment field is not. With `ROLE_TOKENS` set,
 **Q: The PS asks for alerts before user interaction - do you do that?**
 A: At two levels, and we are precise about each. The pre-delivery SMTP gateway analyses a message before it reaches any mailbox and holds high-risk ones for analyst review - proven end to end over real SMTP, but it is a gateway model for an institution's own mail flow, not an interception of Gmail. Inside Gmail, the extension shows the risk banner and, once a high-risk verdict is in, asks for confirmation on link clicks (best effort, not a security boundary). The Gmail label/quarantine actions and the click warning were tried by our team by hand on a live Gmail account (a manual check, not part of the automated test suite, which uses a fake Gmail service).
 
+**Q: Can you tell who sent the email?**
+A: No, and we say so. We identify the infrastructure and who can act on it: relay IPs, network owners and registrar abuse contacts from public registry records, plus a confidence score for how far the evidence can be trusted. Naming a person needs a legal request to those providers; the investigator-leads panel tells the officer who to send it to.
+
+**Q: Do you detect open relays and botnets?**
+A: Botnet: we match relay IPs against public botnet command-and-control and hijacked-netblock feeds, and a match is a lead, not proof the sender is a bot. Open relay: no. Detecting it means actively probing mail servers, which is intrusive and out of scope, so we do not claim it.
+
+**Q: Is the five-class result a trained model?**
+A: No. It is a documented decision table over the BERT model, authentication and rule evidence. It scores 0.91 on our own hand-written fixtures. On the independent 2025 phishing sample it now catches about 33% as phishing/fraud/impersonation, but with 23 false positives in 300 legitimate messages, mostly hard-ham newsletters. We present it as a review hypothesis and list a trained five-class model on the roadmap.
+
 **Q: Bitcoin anchoring - can you prove a case's timestamp right now, live?**
 A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We have a real demo proof, submitted ahead of time and now **confirmed in Bitcoin block 968372** (`demo/bitcoin_proof/demo_proof.json`; run `demo_proof.py check` to re-verify it live against a public block explorer). It anchors the real hash-chain head of a sample-case session - proof that the head hash existed by that block, not proof the email is genuine. Confirmation for a fresh case still takes hours, and we say so.
 
@@ -299,7 +326,7 @@ A: The anchor is submitted immediately and is independently verifiable, but Bitc
 A: We stress-tested that exact claim with 20 real concurrent threads and it never reproduced - so we didn't claim a fix for a bug we couldn't confirm existed. We did remove a redundant second database connection in the note/assignment code path as legitimate hardening, but we're precise about the difference between "fixed a proven bug" and "removed a theoretical risk."
 
 **Q: Did you test on data the model has not seen from elsewhere?**
-A: Yes, and the result is mixed, which is why we publish it. On 150 phishing messages from a 2025 public corpus the classifier flagged 98%; on 300 legitimate messages from a 2003 public corpus it flagged 37%, mostly promotional newsletters that resemble promotional phishing. The era gap explains part of that but not all. Flagged mail lands in a review queue rather than an automatic block: the gateway holds only urgent or score-60+ mail, which wrongly held 2% of that legitimate mail but also caught only about 5% of the phishing on its own, and cases carrying only the model signal are labelled "model-only" in the case view. The fix is retraining with modern legitimate newsletters as negatives, which is on the roadmap.
+A: Yes, and the result is mixed, which is why we publish it. On 150 phishing messages from a 2025 public corpus the classifier flagged 98%; on 300 legitimate messages from a 2003 public corpus it flagged 37%, mostly promotional newsletters that resemble promotional phishing. The era gap explains part of that but not all. Flagged mail lands in a review queue rather than an automatic block: the gateway holds only urgent or score-60+ mail, which wrongly held 2% of that legitimate mail but also caught only about 5% of the phishing on its own. The five-class threat label now catches 33% of the phishing, but with 23 false positives in 300 legitimate messages. The fix is retraining with modern legitimate newsletters as negatives, which is on the roadmap.
 
 **Q: How real is your 99.32% accuracy?**
 A: It's a held-out test-split result on 33,527 emails the model never trained on, from an exact-deduplicated random split - a legitimate number, not a real-world guarantee. We haven't yet run a campaign-held-out or near-duplicate-safe benchmark (template-level near-duplicates across campaigns could still leak signal between train and test) - that's explicitly on our own roadmap, not swept under the rug. Real-world traffic will also drift from any training distribution; that's exactly why the pipeline never lets the ML score stand alone - it's fused with cryptographic sender authentication.
@@ -390,10 +417,10 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Brand lookalike and display-name spoofing detection - a curated table of Indian banks, government and payment services plus a few global brands; flags lookalike domains (suffix swaps, one-character edits, homoglyphs, brand-plus-keyword combinations) on the sender, Reply-To and linked domains, and display names that invoke a brand from an unrelated domain. Legitimate domains and their subdomains are never flagged. Curated, not exhaustive: an unlisted brand is not covered
 - ✅ Known-bad infrastructure matching - relay IPs checked against the abuse.ch Feodo Tracker botnet command-and-control list and Spamhaus DROP netblocks (cached public feeds, no API key; states fresh/stale/unavailable). A match is a lead, not proof the sender is a bot. Open-relay detection is not offered (it would need active probing)
 - ✅ Gateway-attested earliest node (opt-in via `GATEWAY_RECEIPT_KEY`) - the SMTP gateway signs what it observed (connecting IP, MAIL FROM, HELO) bound to the message bytes using the same attestation mechanism as the receiver evidence. Proven over real SMTP; in a local demo the connecting IP is loopback, so this shows the mechanism, not validation against a real institutional mail server
-- ✅ Investigator leads - registrar and network-owner abuse contacts and registration dates from public RDAP records (opt-in enrichment). Tells an investigator who to contact, never who the sender is; tested against fixture RDAP data, not run against live registries
-- ✅ Five-class primary classification (legitimate / suspicious / impersonated / phishing / fraud-related) - a documented deterministic decision table over model, authentication and rule evidence, shown as a chip in the case view. Not a trained five-class model. 0.91 accuracy on 75 hand-written synthetic fixtures, but only 5% recall on 150 real 2025 phishing messages (higher on the 2024 dev sample where the homoglyph-display-name and password-expiry-lure rules were developed) with 1 false alarm in 300 legitimate messages, so present it as a high-precision, low-recall triage aid
+- ✅ Investigator leads - registrar and network-owner abuse contacts and registration dates from public RDAP records (opt-in enrichment). Tells an investigator who to contact, never who the sender is; live-checked against public RDAP for Google, GitHub, Cloudflare, Google DNS, APNIC Labs, Fastly and Cloudflare IPv6 (`benchmarks/leads_live_check.md`)
+- ✅ Five-class primary classification (legitimate / suspicious / impersonated / phishing / fraud-related) - a documented deterministic decision table over model, authentication and rule evidence, shown as a chip in the case view. Not a trained five-class model. 0.91 accuracy on 75 hand-written synthetic fixtures; on the independent 2025 phishing sample it catches 33% as phishing/fraud/impersonation, with 23 false positives in 300 legitimate messages, so present it as a review hypothesis rather than an automatic verdict
 - ✅ Independent evaluation harness - reproducible run on public corpora not used in training (Nazario 2025 phishing, CC-BY-4.0; SpamAssassin legitimate mail): the classifier flags 98% of the phishing but also 37% of the legitimate mail, mostly promotional newsletters (details in `benchmarks/external_evaluation.md`)
-- ✅ 799 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
+- ✅ 808 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 32 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, non-bugs including a wrongly claimed "no Python 3.12 torch wheel") and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
@@ -434,6 +461,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 Keep these in speaker notes or Q&A answers.
 
 - We locate **email relay infrastructure**, not a human attacker.
+- Bank of Baroda is context, not proof: the bank confirmed a narrower incident than the ~1 TB claim, and nothing shows phishing was the cause or that PRAHARI would have prevented it.
 - The ML score is **held-out test performance**, not a universal guarantee.
 - Blockchain anchoring **supports** a BSA Section 63 certificate; it does not issue one. Bitcoin confirmation takes **hours, not seconds** - say so if asked.
 - Gmail Guard is live-verified but depends on Gmail's private frontend markup.
@@ -443,7 +471,78 @@ Keep these in speaker notes or Q&A answers.
 - The pre-delivery gateway is a gateway model for an institution's own mail flow, not an interception of Gmail; Gmail label/quarantine actions are covered by automated tests against a fake service only and were tried by hand on a live account (manual, not recorded in the repo).
 - Click-time warning is best effort, not a security boundary. OCR reads English/Latin script only and is an aid, not proof. Landing-page inspection is static (no JavaScript, no screenshot).
 - Role auth is per-person bearer tokens, not SSO. The ledger and OCR are on by default (switch off with `LEDGER_ENABLED=0` / `OCR_ENABLED=0`); roles, the gateway and Gmail actions are off unless configured.
+- We do not detect open relays (it would need active probing). Botnet and netblock matches are leads, not proof the sender is a bot. Investigator leads name organisations to contact, never the sender.
+- The five-class result is a decision table, not a trained model; its external-test threat recall is 33% with measurable false positives. The brand table is curated and not exhaustive.
+- The classifier flags many promotional newsletters (37% of 2003 legitimate mail in our external test); model-only cases are labelled as leads, not verdicts.
+- The gateway receipt is exercised locally (loopback); it shows the mechanism, not validation against a real institutional mail server.
+- The Dockerfile has not yet been built and run; say "containerisation-ready", not "deployed in a container", unless that changes.
 - The gateway holds only urgent or score-60+ messages: a review-level phish (for example a Hinglish credential lure scoring 20) is delivered with an `X-PRAHARI-Triage: review` header, not held.
+
+---
+
+## Diagram Pack (the 4 visuals to put in the deck - exact content)
+
+Use exactly these four. Keep every label short. Each one has a slide, the data to draw, a one-line caption, and what NOT to claim.
+
+### Diagram 1 - Pipeline ("Email in -> Evidence out")  |  Slide 3, hero graphic
+Ready-made file: `demo/pipeline.svg` (drop it in, or redraw in your tool). Ten boxes in a snake, left to right then back right to left:
+
+| # | Box title | Sub-label (one line) |
+|---|---|---|
+| 1 | Email in | upload / paste / Gmail |
+| 2 | Parse | headers, body, files, QR |
+| 3 | Verify sender | SPF DKIM DMARC ARC |
+| 4 | Detect | BERT + manipulation + brands |
+| 5 | Trace infra | relays, geo, Tor, botnet |
+| 6 | Attribute | confidence, campaigns |
+| 7 | Classify | 5 classes + priority |
+| 8 | Seal evidence | hash chain + Bitcoin anchor |
+| 9 | Export | PDF, STIX, SIEM (masked) |
+| 10 | Analyst | review, notes, four-eyes |
+
+Footer tag: "Built and tested. Optional: pre-delivery SMTP gateway holds high-risk mail before any mailbox."
+Caption: **One email in, one defensible case out.**
+Do not claim: that the gateway intercepts Gmail; that any step names a person.
+
+### Diagram 2 - Tamper-evident evidence chain + Bitcoin anchor  |  Slide 3 (beside the pipeline) or Slide 5
+Draw 5 rectangles left to right, joined by arrows. Each block has three lines:
+
+```
+Block n
+  event: analyzed | reviewed | exported
+  prev: <first 8 chars of hash n-1>   hash: <first 8 chars of hash n>
+```
+Suggested labels: Block 1 "case analyzed", Block 2 "note added", Block 3 "reviewed by analyst A", Block 4 "approved by analyst B (four-eyes)", Block 5 "exported (masked)".
+- Draw an arrow from the LAST block's hash up to a box "OpenTimestamps calendar" and then to a box "Bitcoin block" with the text "confirmed in block 968372 (demo proof)".
+- Beneath the chain, draw a second copy where Block 3 is edited: colour it red, label "edited", and colour every block after it red with "hash no longer matches" - caption "one edit breaks every later hash".
+Caption: **Tamper-evident by design: edit one event and the chain visibly breaks; the head hash is anchored to Bitcoin.**
+Do not claim: that this proves an email is genuine or that the anchor is instant (a fresh case takes hours to confirm on Bitcoin); it proves the record was not altered after it was made. It supports, but does not issue, a BSA Section 63 certificate.
+
+### Diagram 3 - Evidence graph (real screenshot)  |  Slide 2 (next to the 8 bullets) or Slide 5
+Take a real screenshot of the app's connection / evidence-graph view. To make it look good: analyze the three built-in samples plus one or two extra emails that share a sender domain or relay IP, then open the graph. Crop to the graph only; make the window wide; use the dark theme as-is.
+Annotate with three small callouts:
+1. "Each node is one case (number = evidence score)"
+2. "Solid line = strong shared indicator (same sender, relay IP, URL or attachment hash)"
+3. "Dashed line = context only, never merges cases"
+Caption: **Related emails are linked into campaigns by shared indicators - the part a single-email scanner cannot do.**
+Do not claim: confirmed campaign attribution; a shared indicator supports investigation, not proof.
+
+### Diagram 4 - Annotated case view (real screenshot)  |  Slide 2 or Slide 5
+Screenshot of the case view for the built-in sample **"Account verification request"** (score 75, High, urgent, primary class phishing, high confidence). Add 5 numbered callouts, one line each:
+1. **Evidence score 75 / High** - "how bad the content looks (grouped heuristic, not a probability)"
+2. **Primary class: phishing (high)** - "one of five classes from a documented decision table"
+3. **Review priority: Urgent** - "what an analyst should do first - a separate output from the score"
+4. **Findings list** - "Reply-To differs, suspicious URL, credential pressure, verification avoidance - every flag says why"
+5. **Authentication + relay hops** - "who really sent it, and how far to trust the trace"
+Caption: **Not just a score: the reason for every flag, and separate outputs for score, confidence and priority.**
+Do not claim: a percentage of certainty; the "100% phishing probability" number is an uncalibrated model output - if it is visible, note "uncalibrated".
+
+### Layout suggestion
+- Slide 2: 8 bullets on the left, Diagram 3 (graph) or Diagram 4 (case view) on the right.
+- Slide 3: Diagram 1 (pipeline) full width on top, Diagram 2 (chain) smaller underneath.
+- Slide 4: no diagram needed; keep the challenge table.
+- Slide 5: the other screenshot (Diagram 3 or 4) beside the impact numbers.
+Consistent style: dark background, one accent colour (lime), sans-serif, no logos, no more than about 5 words per label.
 
 ---
 

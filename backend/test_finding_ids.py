@@ -59,7 +59,7 @@ def test_id_is_lowercase_hex_of_the_expected_length():
 
 
 def test_duplicate_generic_findings_get_distinct_ids_not_a_collision():
-    # Regression (Codex Medium): several real producers emit intentionally
+    # Regression: several real producers emit intentionally
     # generic title+detail text shared by genuinely different findings (e.g.
     # two different suspicious URLs both explained by the same structural
     # reason string). Without disambiguation these would collide onto the

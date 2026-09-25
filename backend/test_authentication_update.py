@@ -107,7 +107,7 @@ def test_published_policy_falls_back_to_p_when_a_subdomain_org_record_has_no_sp(
 
 
 def test_gmail_push_source_gets_an_accurate_spf_unavailable_message():
-    # Regression (Antigravity-flagged, real): Gmail-push-ingested mail always
+    # Regression: Gmail-push-ingested mail always
     # has context=None, since the Gmail API's raw message fetch exposes no
     # SMTP envelope data (no client IP/MAIL FROM/HELO) -- structurally
     # unavoidable for this ingestion path, not an oversight. The generic

@@ -108,7 +108,7 @@ peer_limiter = PeerLimiter()
 # this fix -- see test_peer_limit_cannot_be_reset_with_cookie_or_forwarded_header,
 # which deliberately proves the header is ignored by default.
 TRUSTED_PROXY_HOPS = int(os.getenv('TRUSTED_PROXY_HOPS', '0'))
-# Codex review (Medium): TRUSTED_PROXY_HOPS alone trusted X-Forwarded-For
+# TRUSTED_PROXY_HOPS alone trusted X-Forwarded-For
 # from ANY direct connection once set, with no check on who actually made
 # that connection -- an attacker reaching this app directly (a network
 # misconfiguration, or the app being reachable on a path the real proxy
@@ -247,7 +247,7 @@ async def _with_session(request, call_next):
 # grepping the frontend source for every https:// reference, not guessed) --
 # exact hostname, not a *.tile.openstreetmap.org wildcard, since the app
 # requests that single host directly with no {s} subdomain placeholder.
-# style-src allows 'unsafe-inline': Codex review (Medium) -- React's own
+# style-src allows 'unsafe-inline': React's own
 # inline style={{...}} props and Leaflet's runtime marker/tile positioning
 # rely on inline styling, and 'self'-only style-src risked silently breaking
 # the map (verified an img-src tile itself loads fine, but that alone

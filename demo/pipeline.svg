@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" role="img" aria-label="PRAHARI pipeline: email in, evidence out">
+  <style>
+    .box { fill: #0f172a; stroke: #a3e635; stroke-width: 2; rx: 12; }
+    .txt { fill: #f1f5f9; font: 600 17px 'Segoe UI', Arial, sans-serif; text-anchor: middle; }
+    .sub { fill: #94a3b8; font: 13px 'Segoe UI', Arial, sans-serif; text-anchor: middle; }
+    .head { fill: #f1f5f9; font: 700 26px 'Segoe UI', Arial, sans-serif; }
+    .tag { fill: #a3e635; font: 600 15px 'Segoe UI', Arial, sans-serif; }
+    .arrow { stroke: #a3e635; stroke-width: 3; fill: none; marker-end: url(#a); }
+  </style>
+  <defs><marker id="a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#a3e635"/></marker></defs>
+  <rect width="1200" height="420" fill="#020617"/>
+  <text x="40" y="52" class="head">PRAHARI: one email in, one defensible case out</text>
+
+  <rect class="box" x="30" y="100" width="170" height="90"/><text class="txt" x="115" y="140">Email in</text><text class="sub" x="115" y="165">upload / paste / Gmail</text>
+  <rect class="box" x="235" y="100" width="170" height="90"/><text class="txt" x="320" y="140">Parse</text><text class="sub" x="320" y="165">headers, body, files, QR</text>
+  <rect class="box" x="440" y="100" width="170" height="90"/><text class="txt" x="525" y="140">Verify sender</text><text class="sub" x="525" y="165">SPF DKIM DMARC ARC</text>
+  <rect class="box" x="645" y="100" width="170" height="90"/><text class="txt" x="730" y="140">Detect</text><text class="sub" x="730" y="165">BERT + manipulation + brands</text>
+  <rect class="box" x="850" y="100" width="170" height="90"/><text class="txt" x="935" y="140">Trace infra</text><text class="sub" x="935" y="165">relays, geo, Tor, botnet</text>
+
+  <rect class="box" x="850" y="250" width="170" height="90"/><text class="txt" x="935" y="290">Attribute</text><text class="sub" x="935" y="315">confidence, campaigns</text>
+  <rect class="box" x="645" y="250" width="170" height="90"/><text class="txt" x="730" y="290">Classify</text><text class="sub" x="730" y="315">5 classes + priority</text>
+  <rect class="box" x="440" y="250" width="170" height="90"/><text class="txt" x="525" y="290">Seal evidence</text><text class="sub" x="525" y="315">hash chain + Bitcoin anchor</text>
+  <rect class="box" x="235" y="250" width="170" height="90"/><text class="txt" x="320" y="290">Export</text><text class="sub" x="320" y="315">PDF, STIX, SIEM (masked)</text>
+  <rect class="box" x="30" y="250" width="170" height="90"/><text class="txt" x="115" y="290">Analyst</text><text class="sub" x="115" y="315">review, notes, four-eyes</text>
+
+  <path class="arrow" d="M200 145 H233"/><path class="arrow" d="M405 145 H438"/><path class="arrow" d="M610 145 H643"/><path class="arrow" d="M815 145 H848"/>
+  <path class="arrow" d="M935 190 V248"/>
+  <path class="arrow" d="M850 295 H817"/><path class="arrow" d="M645 295 H612"/><path class="arrow" d="M440 295 H407"/><path class="arrow" d="M235 295 H202"/>
+  <text x="40" y="385" class="tag">Built and tested. Optional: pre-delivery SMTP gateway holds high-risk mail before any mailbox.</text>
+</svg>

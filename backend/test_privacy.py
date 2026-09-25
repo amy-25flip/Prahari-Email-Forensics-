@@ -38,7 +38,7 @@ def test_redact_tolerates_authentication_missing_entirely():
 
 
 def test_redact_preserves_stable_finding_ids():
-    # Regression (Codex, whole-session integration review): findings gained
+    # Regression: findings gained
     # a stable 'id' field this session (see finding_ids.py) so a forensic
     # report can cite a specific finding across re-analysis/exports. redact()
     # rebuilt each finding as a fresh dict of only group/title/detail/points

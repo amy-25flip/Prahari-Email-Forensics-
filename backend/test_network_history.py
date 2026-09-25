@@ -89,7 +89,7 @@ def test_current_report_never_counts_itself():
 
 
 def test_same_id_different_object_never_counts_itself():
-    # Regression (Codex Medium): a future/different caller could pass a
+    # Regression: a future/different caller could pass a
     # saved-and-reloaded copy of the current report (same id, different
     # Python object identity) inside prior_reports. It must still be excluded,
     # not just the exact same object.
@@ -100,7 +100,7 @@ def test_same_id_different_object_never_counts_itself():
 
 
 def test_mismatched_timestamp_types_do_not_crash_sorting():
-    # Regression (Codex Medium-low): mixed float/string/None 'created' values
+    # Regression: mixed float/string/None 'created' values
     # across cases (e.g. an imported/legacy report) must not raise a
     # cross-type comparison error during sort.
     prior_a = report(sender='x@shared.example', id='r0', created='not-a-number')

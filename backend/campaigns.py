@@ -173,7 +173,7 @@ def build(reports):
 # straight out of report['indicators'] without validating the type name, so
 # without this whitelist a malformed/legacy report could inject an
 # unexpected node type and silently make the "exactly these types" policy
-# claim below false. Codex review (Low): this was previously true only by
+# claim below false. this was previously true only by
 # convention (every current engine.py call site happens to only ever write
 # reply_address/url/attachment_hash there), not by enforcement.
 KNOWN_INDICATOR_NODE_TYPES = {'sender_address', 'sender_domain', 'reported_ip', 'url', 'attachment_hash',

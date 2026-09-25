@@ -61,7 +61,7 @@ def test_every_factor_is_always_listed_even_when_not_applied():
 
 
 def test_all_nine_positive_factors_applied_still_caps_at_exactly_100():
-    # Regression (Antigravity-flagged, real fact about the raw table): the
+    # Regression: the
     # 9 positive FACTOR_WEIGHTS values (35+10+10+10+10+10+10+5+10) sum to
     # 110, not 100. That is INTENTIONAL headroom, not a bug -- assess()'s own
     # final = min(100, ...) cap (see attribution.py) is what actually governs

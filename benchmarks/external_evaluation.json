@@ -81,33 +81,33 @@
       }
     },
     "primary_class_threat": {
-      "tp": 8,
-      "fn": 142,
-      "fp": 1,
-      "tn": 299,
-      "precision": 0.8889,
-      "recall": 0.0533,
-      "f1": 0.1006,
-      "false_positive_rate": 0.0033,
+      "tp": 49,
+      "fn": 101,
+      "fp": 23,
+      "tn": 277,
+      "precision": 0.6806,
+      "recall": 0.3267,
+      "f1": 0.4414,
+      "false_positive_rate": 0.0767,
       "per_corpus_flagged": {
-        "phishing-2025 (Nazario)": "8/150",
-        "spamassassin easy_ham 2003": "1/150",
-        "spamassassin hard_ham 2003": "0/150"
+        "phishing-2025 (Nazario)": "49/150",
+        "spamassassin easy_ham 2003": "2/150",
+        "spamassassin hard_ham 2003": "21/150"
       }
     },
     "primary_or_suspicious": {
       "tp": 147,
       "fn": 3,
-      "fp": 199,
-      "tn": 101,
-      "precision": 0.4249,
+      "fp": 204,
+      "tn": 96,
+      "precision": 0.4188,
       "recall": 0.98,
-      "f1": 0.5927,
-      "false_positive_rate": 0.6633,
+      "f1": 0.5868,
+      "false_positive_rate": 0.68,
       "per_corpus_flagged": {
         "phishing-2025 (Nazario)": "147/150",
         "spamassassin easy_ham 2003": "98/150",
-        "spamassassin hard_ham 2003": "101/150"
+        "spamassassin hard_ham 2003": "106/150"
       }
     }
   },

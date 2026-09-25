@@ -65,7 +65,7 @@ def test_public_reported_ip_becomes_a_shared_node_across_cases():
 
 
 def test_unknown_indicator_type_is_silently_skipped_not_fabricated_into_a_node():
-    # Regression (Codex Low): indicators() pulls arbitrary (type, value) pairs
+    # Regression: indicators() pulls arbitrary (type, value) pairs
     # straight from report['indicators'] without validating the type name --
     # a malformed/legacy report entry with an unrecognized type must not
     # silently become a surprise node type, contradicting the "exactly these
@@ -90,7 +90,7 @@ def test_report_with_no_id_raises_instead_of_silently_merging_case_nodes():
 
 
 def test_node_id_collision_between_different_indicators_raises_not_silently_merges(monkeypatch):
-    # Regression (Codex Low): setdefault() previously kept the FIRST node's
+    # Regression: setdefault() previously kept the FIRST node's
     # recorded type/value on a hash collision and silently pointed later
     # edges at it. A truncated-hash collision must raise, never silently
     # merge two genuinely different indicators onto one graph node.

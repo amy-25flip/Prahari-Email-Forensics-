@@ -141,7 +141,7 @@ def test_conversation_section_present_and_empty_for_a_lone_email(client):
 
 
 def test_garbage_shared_reference_tokens_do_not_false_join_threads():
-    # Regression (Codex Low/Medium): a malformed/placeholder References value
+    # Regression: a malformed/placeholder References value
     # is not shaped like a real Message-ID and must not become thread-linking
     # evidence just because two unrelated messages both have it.
     a = report(headers=[hdr('References', 'unknown')], subject='Totally different')
@@ -161,7 +161,7 @@ import engine  # noqa: E402
 
 
 def test_phone_and_tracking_numbers_are_not_captured_as_account_numbers():
-    # Regression (Codex Medium): the account-number extractor must require
+    # Regression: the account-number extractor must require
     # actual banking context, not fire on any 9-18 digit run (a phone number,
     # invoice number, or tracking number).
     raw = (b'From: a@b.com\r\nTo: c@d.com\r\nSubject: Update\r\n\r\n'

@@ -1,0 +1,92 @@
+{
+  "what": "Server-measured elapsed_ms for /api/analyze?enrich=true against LIVE external services (DNS, RDAP, ipwho.is geolocation, Tor exit list, abuse.ch Feodo, Spamhaus DROP, investigator leads). No AbuseIPDB/VirusTotal keys configured, so those are not included. One email per real public domain with that domain's real IPv4 in a Received header. Each round is a fresh process with empty caches.",
+  "measured_at": "2026-09-25T18:58:12",
+  "python": "3.14.0",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "rounds": 3,
+  "domains": [
+    "microsoft.com",
+    "python.org",
+    "mozilla.org",
+    "wikipedia.org",
+    "kernel.org",
+    "debian.org"
+  ],
+  "first_request_in_fresh_process_ms": {
+    "values": [
+      3656,
+      4441,
+      4017
+    ],
+    "median": 4017,
+    "max": 4441
+  },
+  "later_domains_feeds_warm_domain_caches_cold_ms": {
+    "median": 1902,
+    "max": 3952,
+    "min": 1075,
+    "n": 15
+  },
+  "repeat_all_warm_ms": {
+    "median": 50.5,
+    "max": 57,
+    "n": 18
+  },
+  "raw_rounds": [
+    {
+      "first": 3656,
+      "cold_domains": {
+        "python.org": 3952,
+        "mozilla.org": 2494,
+        "wikipedia.org": 1239,
+        "kernel.org": 3385,
+        "debian.org": 2905
+      },
+      "repeat": {
+        "microsoft.com": 57,
+        "python.org": 50,
+        "mozilla.org": 53,
+        "wikipedia.org": 51,
+        "kernel.org": 51,
+        "debian.org": 50
+      }
+    },
+    {
+      "first": 4441,
+      "cold_domains": {
+        "python.org": 2090,
+        "mozilla.org": 1714,
+        "wikipedia.org": 1075,
+        "kernel.org": 1398,
+        "debian.org": 1902
+      },
+      "repeat": {
+        "microsoft.com": 46,
+        "python.org": 49,
+        "mozilla.org": 49,
+        "wikipedia.org": 48,
+        "kernel.org": 45,
+        "debian.org": 46
+      }
+    },
+    {
+      "first": 4017,
+      "cold_domains": {
+        "python.org": 2089,
+        "mozilla.org": 1455,
+        "wikipedia.org": 1151,
+        "kernel.org": 1462,
+        "debian.org": 2048
+      },
+      "repeat": {
+        "microsoft.com": 52,
+        "python.org": 54,
+        "mozilla.org": 54,
+        "wikipedia.org": 50,
+        "kernel.org": 53,
+        "debian.org": 51
+      }
+    }
+  ],
+  "caveat": "Depends on external service latency and this machine's network; treat as an order of magnitude, not a guarantee."
+}

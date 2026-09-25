@@ -59,7 +59,7 @@ def test_sanitize_report_masks_body_but_keeps_hashes_and_does_not_mutate():
 
 
 def test_upi_does_not_mask_ordinary_email():
-    # Regression (Codex High): an email whose domain merely starts with a PSP name is NOT a VPA.
+    # Regression: an email whose domain merely starts with a PSP name is NOT a VPA.
     for s in ('mail support@sbi.co.in now', 'care@hdfcbank.com replied', 'x@icici.com'):
         assert '[UPI REDACTED]' not in pii.sanitize(s)
     assert pii.scan('support@sbi.co.in care@hdfcbank.com')['upi'] == 0

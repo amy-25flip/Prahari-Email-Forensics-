@@ -108,7 +108,7 @@ def test_declared_pixel_count_none_for_unrecognized_header():
 
 def test_oversized_declared_png_dimensions_rejected_before_decode(monkeypatch):
     # A PNG header can *declare* an enormous width/height while the actual
-    # compressed bytes are tiny (the decompression-bomb-class risk Codex
+    # compressed bytes are tiny (the decompression-bomb-class risk the review
     # flagged) -- craft a minimal, valid PNG signature+IHDR claiming a huge
     # image, and confirm it's rejected without ever reaching cv2.imdecode.
     huge_ihdr = struct.pack('>II', 50000, 50000)  # 2.5 billion declared pixels
@@ -134,7 +134,7 @@ def test_decode_qr_payloads_dedupes_repeated_codes():
 
 
 def test_qr_url_not_starved_by_fifty_body_url_cap():
-    # Regression (Codex Medium/Low): QR-derived links must be scanned even
+    # Regression: QR-derived links must be scanned even
     # when an email also contains 50 unrelated body URLs that would otherwise
     # exhaust the per-analysis URL cap first.
     body_links = ' '.join(f'http://harmless-{i}.example.com/page' for i in range(60))

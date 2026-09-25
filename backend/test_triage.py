@@ -64,7 +64,7 @@ def test_stored_and_exported_review_decision(client):
 
 
 def test_pdf_export_preserves_hindi_text_not_replaced_with_question_marks(client):
-    # Regression (Antigravity-flagged, real): the core 'Helvetica' PDF font
+    # Regression: the core 'Helvetica' PDF font
     # only supports Latin-1, so every non-Latin-1 character (Hindi/
     # Devanagari script especially, real for an India-focused platform) was
     # forced through .encode('latin-1','replace') and silently became a

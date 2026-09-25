@@ -3,21 +3,30 @@
 Registrar/hosting abuse contacts and network owners for the sender domain and public relay IPs. Registrant data is usually
 redacted and this never identifies the person behind a message: it says who can be asked, not who the actor is."""
 import ipaddress
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
+from urllib.parse import urlsplit, urljoin
+import requests
 import domain_intelligence as di
 
 CAVEAT = ('Leads identify organisations that can act on an abuse report or answer a legal request (registrar, hosting provider, network owner). '
           'Registrant details are usually redacted, and none of this identifies the person who sent the message.')
 _cache, _ip_bootstrap, _lock = {}, {}, threading.Lock()
 MAX_IPS = 3
+RIR_RDAP_HOSTS = {'rdap.arin.net', 'rdap.db.ripe.net', 'rdap.apnic.net', 'rdap.lacnic.net', 'rdap.afrinic.net'}
 
 
 def _vcard(entity):
     card = entity.get('vcardArray') or []
     rows = card[1] if len(card) == 2 and isinstance(card[1], list) else []
-    def pick(field): return next((str(r[3])[:256] for r in rows if len(r) > 3 and r[0] == field and r[3]), None)
+    def value(row):
+        data = row[3] if len(row) > 3 else None
+        if isinstance(data, str) and data.lower().startswith('mailto:'):
+            data = data[7:]
+        return str(data)[:256] if data else None
+    def pick(field): return next((value(r) for r in rows if len(r) > 3 and r[0] == field and value(r)), None)
     return pick('fn'), pick('email')
 
 
@@ -27,6 +36,56 @@ def _walk(entities, depth=0):
         yield entity
         yield from _walk(entity.get('entities'), depth + 1)
 
+
+
+
+def _valid_rdap_redirect(location, base_url):
+    target = urlsplit(urljoin(base_url, location or ''))
+    if (target.scheme != 'https' or not target.hostname or target.username or target.password or target.port
+            or target.query or target.fragment):
+        return None
+    host = target.hostname.lower()
+    path = target.path or ''
+    if host not in RIR_RDAP_HOSTS:
+        return None
+    if not (path == '/rdap' or path.startswith('/rdap/') or path.startswith('/ip/') or path.startswith('/domain/') or path.startswith('/registry/ip/') or path.startswith('/registry/domain/')):
+        return None
+    return target.geturl()
+
+
+def fetch_rdap_json(url):
+    """Fetch RDAP JSON with one tightly validated RIR redirect.
+
+    domain_intelligence.fetch_json intentionally rejects all redirects for its broader callers. Network RDAP sometimes delegates
+    between RIRs (for example RIPE -> ARIN). Leads can follow exactly one such handoff, but only to known HTTPS RIR RDAP hosts and
+    only on RDAP-looking paths; this keeps the SSRF surface narrow and local to investigator leads.
+    """
+    current = url
+    redirected = False
+    for _ in range(2):
+        with requests.get(current, headers={'Accept': 'application/rdap+json, application/json'}, timeout=(2, 3),
+                          allow_redirects=False, stream=True) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                if redirected:
+                    raise ValueError('Second RDAP redirect rejected')
+                nxt = _valid_rdap_redirect(response.headers.get('Location'), current)
+                if not nxt:
+                    raise ValueError('Unsafe RDAP redirect rejected')
+                current, redirected = nxt, True
+                continue
+            if response.status_code != 200:
+                raise ValueError('Registry lookup unavailable')
+            chunks, size = [], 0
+            for chunk in response.iter_content(8192):
+                size += len(chunk)
+                if size > 524288:
+                    raise ValueError('Oversized registry response')
+                chunks.append(chunk)
+            data = json.loads(b''.join(chunks))
+            if not isinstance(data, dict):
+                raise ValueError('Invalid registry response')
+            return data
+    raise ValueError('RDAP redirect loop rejected')
 
 def parse_domain(data):
     registered = next((e.get('eventDate') for e in data.get('events', []) if e.get('eventAction') == 'registration'), None)
@@ -59,13 +118,18 @@ def _ip_endpoint(ip):
         saved = _ip_bootstrap.get(kind, (0, []))
     if saved[0] < time.time():                        # fetch outside the lock so concurrent lookups are not serialised
         data = di.fetch_json(f'https://data.iana.org/rdap/{kind}.json')
-        saved = (time.time() + 86400, data['services'])
+        services = [s for s in data.get('services', []) if (isinstance(s, list) and len(s) == 2 and isinstance(s[0], list) and isinstance(s[1], list))]
+        saved = (time.time() + 86400, services)
         with _lock:
             _ip_bootstrap[kind] = saved
     services = saved[1]
     for cidrs, urls in services:
-        if any(ip in ipaddress.ip_network(c, strict=False) for c in cidrs):
-            return next((u for u in urls if u.startswith('https://')), None)
+        try:
+            matched = any(ip in ipaddress.ip_network(c, strict=False) for c in cidrs)
+        except ValueError:
+            continue
+        if matched:
+            return next((u for u in urls if isinstance(u, str) and u.startswith('https://')), None)
     return None
 
 
@@ -85,7 +149,7 @@ def _domain_lookup(domain):
 
 def _ip_lookup(ip):
     endpoint = _ip_endpoint(ip)
-    return parse_ip(di.fetch_json(endpoint.rstrip('/') + '/ip/' + str(ip))) if endpoint else None
+    return parse_ip(fetch_rdap_json(endpoint.rstrip('/') + '/ip/' + str(ip))) if endpoint else None
 
 
 def _cached(key, fn):

@@ -75,7 +75,7 @@ def test_low_score_finding_never_labels_legitimate(monkeypatch):
 
 
 def test_current_migrated_bank_domains_not_falsely_flagged(monkeypatch):
-    # Regression (Codex Medium): RBI mandated all Indian banks migrate to
+    # Regression: RBI mandated all Indian banks migrate to
     # .bank.in (Circular RBI/2025-26/28, deadline 31 Oct 2025, already past).
     # A legitimate email from a bank's CURRENT post-migration domain must not
     # be flagged as impersonating its own legacy pre-migration identity.
@@ -89,7 +89,7 @@ def test_current_migrated_bank_domains_not_falsely_flagged(monkeypatch):
 def test_corrected_icici_and_axis_bank_in_domains_are_the_real_ones(monkeypatch):
     # Regression: a first pass at this list (built without live web search)
     # guessed 'icicibank.bank.in' and 'axisbank.bank.in' by pattern rather
-    # than verifying -- both are WRONG. A real Codex web-search pass (with
+    # than verifying -- both are WRONG. A web-search check (with
     # citations) found the actual current official domains are icici.bank.in
     # and axis.bank.in. Lock in the corrected values, and confirm the old
     # guessed-but-wrong domains are no longer what's expected (so a future

@@ -26,8 +26,7 @@ status = 'loading'
 detail = 'Loading locally cached model'
 temperature = 1.0
 calibration_note = ''
-# Bounds a loaded temperature must fall strictly inside. Codex review (Critical):
-# `float('inf')` passes a naive `value > 0` check, and dividing logits by inf
+# Bounds a loaded temperature must fall strictly inside. # `float('inf')` passes a naive `value > 0` check, and dividing logits by inf
 # makes softmax uniform -- which CAN flip argmax/the reported label, directly
 # violating "temperature scaling never changes which class wins". A generous
 # but finite range closes that off while still comfortably covering any
@@ -147,7 +146,7 @@ def load():
 # verification (100 held-out phishing test rows, same attack the eval script
 # measures): detection under the attack went from 0/100 to 95/100.
 #
-# Honest limit (Codex review): the overlap only GUARANTEES an intact payload
+# Honest limit : the overlap only GUARANTEES an intact payload
 # in some window when the payload itself is no longer than WINDOW_STRIDE_TOKENS
 # -- a longer payload straddling a window boundary can still be split across
 # two windows, each seeing an incomplete piece. This reduces the boundary-split
@@ -189,7 +188,7 @@ def _tokens_covered(windows, step):
     N * content_length (double-counts every overlap) and not
     content_length + (N-1)*step either (assumes the last window is a full
     content_length long, which is wrong whenever the message doesn't end
-    exactly on a step boundary -- Codex-flagged as an overstated figure in
+    exactly on a step boundary -- flagged in review as an overstated figure in
     an earlier version, e.g. reporting 698 "tokens covered" for a message
     that only had 500)."""
     if not windows:
@@ -218,8 +217,7 @@ def classify(text):
         # Worst case across windows wins: if ANY window looks like phishing,
         # the whole email is treated as phishing -- missing a hidden payload
         # is a far worse failure mode than one window disagreeing with
-        # another on an otherwise-benign long email. Codex review (Medium):
-        # this security-biased rule does trade off a higher false-positive
+        # another on an otherwise-benign long email. # this security-biased rule does trade off a higher false-positive
         # risk on long legitimate mail (more windows scanned -> more chances
         # for one benign window to score as an outlier) -- triggering_window
         # below exposes WHICH window drove the verdict, for exactly that
@@ -246,7 +244,7 @@ def classify(text):
                 'phishing_probability': round(float(window_scores[phishing_index]) * 100, 1),
                 'detail': classify_detail,
                 # Structured (not just prose-in-detail) transparency fields --
-                # Codex review: a text-only note is easy for a frontend/
+                # a text-only note is easy for a frontend/
                 # automated consumer to ignore; these let a caller decide for
                 # itself whether to trust "covered everything" or surface
                 # which window drove an alarming verdict on a long email.

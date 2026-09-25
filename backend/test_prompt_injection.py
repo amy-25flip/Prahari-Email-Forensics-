@@ -110,7 +110,7 @@ def test_multiple_distinct_patterns_each_reported_once():
 
 # --- False-positive resistance: ordinary phrases similar to, but that must
 # not match, the AI-directed patterns above. These are the concrete cases a
-# first review round (Codex) found the original, broader patterns matched. ---
+# first review round found the original, broader patterns matched. ---
 
 def test_act_as_point_of_contact_not_flagged():
     assert pi.scan('Please act as the point of contact for this vendor while I am on leave.')['status'] == 'clear'

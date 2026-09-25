@@ -120,7 +120,7 @@ def test_pad_and_truncation_attacks_do_not_crash_on_empty_string():
 
 
 def test_truncation_shift_attack_actually_crosses_the_real_token_boundary():
-    # Regression (Codex Medium): the whole attack's validity depends on the
+    # Regression: the whole attack's validity depends on the
     # ORIGINAL content actually starting past MAX_LENGTH tokens once
     # truncated -- this must be verified against the real tokenizer, not
     # assumed from a word count. Loads only the tokenizer (fast, no model

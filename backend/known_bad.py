@@ -8,6 +8,7 @@ import ipaddress
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import requests
 
 FEEDS = {
@@ -57,11 +58,15 @@ def assess(hops, enabled):
             except ValueError: continue
             if addr.is_global and str(addr) not in observed: observed.append(str(addr))
     out = {}
-    for name, meta in FEEDS.items():
-        if not enabled:
+    if not enabled:
+        for name, meta in FEEDS.items():
             out[name] = {'status': 'disabled', 'label': meta['label'], 'matches': []}
-            continue
-        refresh(name)                      # network I/O happens outside any lock; the attempt stamp stops concurrent duplicate fetches
+        return out
+    with ThreadPoolExecutor(max_workers=len(FEEDS)) as pool:
+        futures = [pool.submit(refresh, name) for name in FEEDS]
+        for f in futures:
+            f.result()
+    for name, meta in FEEDS.items():
         with _lock:
             nets, fetched = _state[name]['nets'], _state[name]['fetched']
         status = 'unavailable' if not fetched else 'fresh' if 0 <= time.time() - fetched < 86400 else 'stale'

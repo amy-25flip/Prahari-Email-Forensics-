@@ -29,7 +29,7 @@ import adversarial
 # Each pattern is deliberately narrow (tied to AI/classifier-specific
 # framing, not generic business language) to keep false positives low on
 # ordinary corporate email -- see test_prompt_injection.py's negative cases.
-# Two review rounds (Codex) reshaped this list: the first found several
+# Two review rounds reshaped this list: the first found several
 # still too broad (e.g. "do not mark this email as [anything]" matched
 # "do not mark this email as read/closed") or missing close variants; the
 # second found the fix for one of those had gone too far the other way

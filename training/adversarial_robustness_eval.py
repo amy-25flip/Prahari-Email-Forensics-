@@ -116,7 +116,7 @@ def required_filler_word_count(tokenizer, max_length, safety_margin_tokens=8, ma
     [CLS]/[SEP] special tokens, so the boundary check has real margin, not
     an exact off-by-one-token race.
 
-    Codex review (Medium): an earlier version picked a fixed
+    an earlier version picked a fixed
     target_extra_words=400 word budget and asserted the truncation claim
     without ever checking real token counts -- a filler/tokenizer change
     could have silently weakened the attack while the output still said
@@ -175,8 +175,7 @@ def run_probs(tokenizer, model, texts, phishing_index, batch_size=32):
 def find_baseline_detected(tokenizer, model, phishing_df, phishing_index, sample_size, seed=42):
     """Scans phishing-labeled rows in randomized (but seeded/deterministic)
     order, in batches, until `sample_size` baseline-correctly-detected rows
-    are found or the entire phishing split is exhausted. Codex review
-    (Medium): a fixed-size scan (e.g. 3x sample_size) can silently return
+    are found or the entire phishing split is exhausted. A fixed-size scan (e.g. 3x sample_size) can silently return
     fewer than sample_size rows without any warning, making a tiny,
     underpowered n look like a normal-looking robustness result -- this
     keeps scanning (bounded by the real split size, never infinite) and

@@ -63,3 +63,27 @@ def test_authenticated_credential_notice_is_not_phishing_without_corroboration()
     assert classification.classify(dict(notice, authentication={'dmarc': {'status': 'none'}}))['primary'] == 'phishing'
     lookalike = dict(notice, findings=notice['findings'] + [{'title': 'Look-alike domain', 'points': 15}])
     assert classification.classify(lookalike)['primary'] == 'phishing'
+
+
+
+def test_lure_rules_require_link_and_unauthenticated_sender():
+    base = {'findings': [], 'score': 5, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': '', 'urls': [{'url': 'https://x.example'}], 'authentication': {'dmarc': {'status': 'none'}}}
+    shared = dict(base, subject='Document shared', body='A secure document was shared with you. View the document.')
+    assert classification.classify(shared)['primary'] == 'phishing'
+    assert classification.classify(dict(shared, authentication={'dmarc': {'status': 'pass'}}))['primary'] not in ('phishing', 'fraud_related', 'impersonated')
+    assert classification.classify(dict(shared, urls=[]))['primary'] not in ('phishing', 'fraud_related', 'impersonated')
+    voicemail = dict(base, subject='New voicemail', body='You have a new voicemail message. Open it here.')
+    assert classification.classify(voicemail)['primary'] == 'phishing'
+    invoice = dict(base, subject='Invoice notification', body='Invoice 8821 is available. View invoice online.')
+    assert classification.classify(invoice)['primary'] == 'fraud_related'
+    assert classification.classify(dict(invoice, authentication={'dmarc': {'status': 'pass'}}))['primary'] not in ('phishing', 'fraud_related', 'impersonated')
+
+
+def test_identity_mismatch_plus_lure_can_mark_impersonation_but_newsletter_cannot():
+    report = {'findings': [{'title': 'Reply-To domain differs', 'points': 20}], 'score': 20, 'ml': {'status': 'unavailable'},
+              'subject': 'Invoice available', 'body': 'A billing notice is ready. View it online.', 'urls': [{'url': 'https://x.example'}],
+              'authentication': {'dmarc': {'status': 'fail'}}}
+    result = classification.classify(report)
+    assert result['primary'] == 'fraud_related' and 'impersonated' in result['secondary']
+    newsletter = dict(report, findings=[], score=5, subject='Weekly product update', body='Read our newsletter and register for the webinar.', authentication={'dmarc': {'status': 'pass'}})
+    assert classification.classify(newsletter)['primary'] not in ('phishing', 'fraud_related', 'impersonated')

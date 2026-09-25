@@ -68,7 +68,7 @@ def test_non_positive_temperature_is_rejected(tmp_path):
 
 
 def test_infinite_temperature_is_rejected(tmp_path):
-    # Regression (Codex Critical): json.loads() accepts non-standard
+    # Regression: json.loads() accepts non-standard
     # `Infinity`/`-Infinity`/`NaN` tokens, and 1e309 also overflows to inf in
     # Python. `float('inf') > 0` is True, so a naive positivity check alone
     # lets it through -- dividing logits by inf makes softmax UNIFORM, which
@@ -91,7 +91,7 @@ def test_absurdly_large_finite_temperature_is_rejected(tmp_path):
 
 
 def test_oversized_calibration_file_is_rejected(tmp_path):
-    # Regression (Codex): an arbitrarily large calibration.json read at model
+    # Regression: an arbitrarily large calibration.json read at model
     # load time is a small memory/time DoS surface for a file that should
     # always be tiny (a handful of numbers).
     huge_padding = '"padding": "' + ('x' * (local_model.MAX_CALIBRATION_FILE_BYTES + 1)) + '"'
@@ -175,7 +175,7 @@ def test_this_projects_own_measured_truncation_attack_now_requires_multiple_wind
 
 
 def test_empty_text_produces_one_empty_window_not_a_crash():
-    # Regression (Codex Low): _window_token_ids(text=0 tokens) must return a
+    # Regression: _window_token_ids(text=0 tokens) must return a
     # well-defined, intentional result ([[]], fully covered), not an
     # accidental edge case nobody decided about.
     windows, covered_all = local_model._window_token_ids(_FakeTokenizer(), 0, max_length=256, stride=32, max_windows=8)
@@ -183,7 +183,7 @@ def test_empty_text_produces_one_empty_window_not_a_crash():
 
 
 def test_module_level_config_asserts_reject_pathological_values():
-    # Regression (Codex Low): MAX_LENGTH/WINDOW_STRIDE_TOKENS/MAX_WINDOWS are
+    # Regression: MAX_LENGTH/WINDOW_STRIDE_TOKENS/MAX_WINDOWS are
     # env-driven -- a pathological value (stride >= content window, MAX_LENGTH
     # too small to hold any content) must fail loudly at load time, not
     # produce silently-empty or nonsensical windows downstream.
@@ -203,7 +203,7 @@ def test_module_level_config_asserts_reject_pathological_values():
 
 
 def test_tokens_covered_matches_a_hand_computed_known_case():
-    # Regression (Codex Medium, twice over): a first version reported
+    # Regression: a first version reported
     # MAX_WINDOWS * content_length (double-counts every overlap). A second
     # version fixed that but reported content_length + (N-1)*step, which
     # assumes the LAST window is always a full content_length long -- wrong
