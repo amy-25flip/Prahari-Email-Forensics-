@@ -49,16 +49,16 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 - Hardening: CSP and Permissions-Policy on every response, HSTS when HTTPS is asserted, spoof-resistant proxy trust for rate limiting (allowlisted IPs/CIDRs, multi-hop chain verification), per-session and per-peer limits, decompression/pixel-count bounds, CSV formula-injection neutralisation.
 - Supply chain: CycloneDX SBOMs (backend 96 components, frontend 59); `pip-audit` over a clean install mirroring the Docker image (96 packages) and `npm audit`: 0 known vulnerabilities (torch's CPU build cannot be scanned by pip-audit).
 - Review process: independent review passes (Codex/GPT, Antigravity) with every finding logged, including non-bugs and unfixed limits, in `security/REVIEW_REGISTER.md`.
-- Accessibility: automated axe-core WCAG 2.1 A/AA audit clean across 12 UI states, contrast verified on 1,226 text elements, no horizontal overflow at 375 px (`security/ACCESSIBILITY_AUDIT.md`); not a screen-reader test.
+- Accessibility: automated axe-core WCAG 2.1 A/AA audit clean across 12 UI states, contrast verified on 1,226 text elements, no horizontal overflow at 375 px (audit predates the Investigator leads panel and the Primary class chip) (`security/ACCESSIBILITY_AUDIT.md`); not a screen-reader test.
 
 ## 7. Evaluation (measured)
 | Metric | Result | Source |
 |---|---|---|
-| Backend automated tests | 769 passing | `pytest backend` |
+| Backend automated tests | 799 passing | `pytest backend` |
 | ML accuracy / false-positive rate | 99.32% / 0.49% on 33,527 held-out emails | `training_report.json` |
 | Truncation-evasion detection | 0/100 -> 95/100 | team attack script re-run |
 | Local analysis latency (BERT loaded, no enrichment) | ~70-75 ms median, p95 ~90 ms (re-measured 2026-09-25) | `benchmarks/` (2 x 100 runs) |
-| Live enrichment latency | ~1.1-1.4 s first lookup; ~35 ms cached | `benchmarks/enrichment_timing.json` |
+| Live enrichment latency | ~1.1-1.4 s first lookup; ~35 ms cached (measured before the known-bad feed and RDAP-lead lookups were added; not re-measured) | `benchmarks/enrichment_timing.json` |
 | Attribution matrix | 17/17 scenarios, 13/13 orderings | `benchmarks/attribution_validation_matrix.md` |
 | Gmail Guard, Splunk HEC | live-verified against a real Gmail account and a real Splunk Enterprise collector | `PS_PROGRESS.md` |
 | Frontend | lint clean (oxlint), bundle 542 kB unsplit -> vendor chunks + 67 kB app chunk | build output |
@@ -79,5 +79,5 @@ RFC 7208 (SPF), RFC 6376 (DKIM), RFC 9989 (DMARC), RFC 8617 (ARC), RFC 5322; Dev
 Added: curated brand lookalike / display-name spoofing checks (`brands.py`), known-bad relay infrastructure feeds (`known_bad.py`: abuse.ch Feodo, Spamhaus DROP; open relay
 not detected), gateway-signed receiver receipts (`GATEWAY_RECEIPT_KEY`), investigator leads from RDAP (`leads.py`), and a documented five-class decision table
 (`classification.py`, not a trained model). Independent evaluation (`benchmarks/external_evaluation.md`): 98% recall on 150 phishing messages from a 2025 public corpus, but a
-37% false-positive rate on 300 legitimate 2003 messages (mostly promotional newsletters); the five-class table catches 7% of that real phishing as phishing/fraud/impersonation
+37% false-positive rate on 300 legitimate 2003 messages (mostly promotional newsletters); the five-class table catches 5% of that real phishing as phishing/fraud/impersonation
 despite 0.91 accuracy on hand-written synthetic fixtures. Leads and gateway receipts are fixture/local-demo verified only.

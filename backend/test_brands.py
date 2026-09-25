@@ -13,14 +13,16 @@ def test_legitimate_domains_and_subdomains_not_flagged():
 
 def test_unrelated_domains_not_flagged():
     assert not brands.assess('Ravi <ravi@gmail.com>', 'ravi@example.org', ['news.example.com', 'appleseed-farm.example'])
-    assert not brands.assess('Team <hello@googleplex-events.example>', None, []) or True
 
 
 def test_combosquat_and_suffix_swap_and_edit():
     assert ('lookalike_domain', 'HDFC Bank') in kinds('x <a@hdfc-secure-login.example>')
     assert ('lookalike_domain', 'HDFC Bank') in kinds('x <a@hdfcbank.co>')
-    assert ('lookalike_domain', 'PayPal') in kinds('x <a@paypa1.com>') or ('lookalike_domain', 'PayPal') in kinds('x <a@paypall.com>')
-    assert ('lookalike_domain', 'Microsoft') in kinds('x <a@microsoft.com.evil.example>') or ('lookalike_domain', 'Microsoft') in kinds('x <a@micros0ft.com>')
+    assert ('lookalike_domain', 'PayPal') in kinds('x <a@paypa1.com>')
+    assert ('lookalike_domain', 'Microsoft') in kinds('x <a@micros0ft.com>')
+    assert ('lookalike_domain', 'Microsoft') in kinds('x <a@microsoft.com.evil.example>')
+    assert ('lookalike_domain', 'HDFC Bank') in kinds('x <a@hdfcbank.com.verify-now.example>')
+    assert not kinds('x <a@paypall.com>')      # short brand labels are matched only by digit-for-letter tricks, not generic edits
 
 
 def test_homoglyph_and_punycode():
@@ -49,3 +51,15 @@ def test_homoglyph_display_name():
     assert not brands.homoglyph_display('Wells Fargo Bank')
     assert not brands.homoglyph_display('\u0418\u0432\u0430\u043d \u041f\u0435\u0442\u0440\u043e\u0432')     # pure Cyrillic name
     assert not brands.homoglyph_display('Ren\u00e9e Zellweger')                                       # accents are not another script's confusables
+
+
+def test_brand_name_alone_does_not_count_as_a_lure_word():
+    assert not brands.assess('x <a@example.org>', None, ['www.paypalobjects.com', 'paypalfans.example'])
+    assert ('lookalike_domain', 'PayPal') in kinds('x <a@paypal-login.example>')
+
+
+def test_other_brands_legitimate_domains_do_not_excuse_a_spoof():
+    assert ('display_name_spoof', 'Microsoft') in kinds('Microsoft Support <attacker@amazonses.com>')
+    assert ('lookalike_domain', 'Microsoft') in kinds('x <a@example.org>', None, ['microsoft-login.amazonaws.com.evil.example'])
+    assert not brands.assess('Amazon <no-reply@amazon.in>', None, ['www.amazon.com', 'pay.amazon.in'])
+    assert not brands.assess('Google <no-reply@accounts.google.com>', None, ['pay.google.com'])

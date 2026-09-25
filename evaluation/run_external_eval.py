@@ -7,7 +7,7 @@ Sources (checked 2026-09-25):
     https://www.monkey.org/~jose/phishing/  (attribution required: Jose Nazario)
 Usage: python evaluation/run_external_eval.py --download   (fetch into evaluation/data, git-ignored)
        python evaluation/run_external_eval.py [--per-corpus 150]
-Writes benchmarks/external_evaluation.json and .md. Fixed random seed; nothing is tuned on these sets.
+Writes benchmarks/external_evaluation.json (the Markdown write-up is maintained by hand from it; exclusions are counted per corpus). Fixed random seed; nothing is tuned on these sets.
 """
 import argparse
 import json
@@ -82,6 +82,7 @@ def run(per_corpus, seed=20260925):
             try: result = engine.analyze(raw, source='external-eval')
             except ValueError:
                 sizes[name]['evaluated'] -= 1
+                sizes[name]['excluded_rejected_by_pipeline'] = sizes[name].get('excluded_rejected_by_pipeline', 0) + 1
                 continue
             if result['ml'].get('status') != 'ready': unavailable += 1
             for rule, fn in RULES.items():

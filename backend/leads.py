@@ -56,10 +56,13 @@ def parse_ip(data):
 def _ip_endpoint(ip):
     kind = 'ipv6' if ip.version == 6 else 'ipv4'
     with _lock:
-        if _ip_bootstrap.get(kind, (0, []))[0] < time.time():
-            data = di.fetch_json(f'https://data.iana.org/rdap/{kind}.json')
-            _ip_bootstrap[kind] = (time.time() + 86400, data['services'])
-        services = _ip_bootstrap[kind][1]
+        saved = _ip_bootstrap.get(kind, (0, []))
+    if saved[0] < time.time():                        # fetch outside the lock so concurrent lookups are not serialised
+        data = di.fetch_json(f'https://data.iana.org/rdap/{kind}.json')
+        saved = (time.time() + 86400, data['services'])
+        with _lock:
+            _ip_bootstrap[kind] = saved
+    services = saved[1]
     for cidrs, urls in services:
         if any(ip in ipaddress.ip_network(c, strict=False) for c in cidrs):
             return next((u for u in urls if u.startswith('https://')), None)
@@ -68,10 +71,12 @@ def _ip_endpoint(ip):
 
 def _domain_lookup(domain):
     with di.lock:
-        if di.bootstrap['expires'] < time.time():
-            data = di.fetch_json('https://data.iana.org/rdap/dns.json')
+        expired, services = di.bootstrap['expires'] < time.time(), di.bootstrap['services']
+    if expired:                                       # fetch outside the shared lock so other domain lookups are not blocked
+        data = di.fetch_json('https://data.iana.org/rdap/dns.json')
+        with di.lock:
             di.bootstrap.update(expires=time.time() + 86400, services=data['services'])
-        services = di.bootstrap['services']
+        services = data['services']
     tld = domain.rsplit('.', 1)[-1]
     endpoint = next((u for suffixes, urls in services if tld in suffixes for u in urls if u.startswith('https://')), None)
     if not endpoint: return None

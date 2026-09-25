@@ -116,7 +116,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **788 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
+- **799 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 9/9 tests passing (including the click-time warning)
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -137,7 +137,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 788 backend tests green
+- 799 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -187,10 +187,10 @@ Phrase to use: **"Truthful forensics beats fake certainty."**
 **Seconds, not guesswork.**
 
 - **~70-75 ms median analysis time (p95 about 90 ms), server-measured** with the BERT model loaded, on the local-only path (no live enrichment) - two 100-run benchmarks (engine-only and full API path incl. case storage), raw data in `benchmarks/`; re-measured 2026-09-25 after the newest features (brand checks, known-bad feeds, OCR); exact figure varies with machine load
-- **~1-1.5 s for a first-time live enrichment** (DNS/RDAP/geo/AbuseIPDB, measured across six real domains - `benchmarks/enrichment_timing.json`), and back to ~35 ms for repeat lookups thanks to caching. Network-dependent, so quote it as "about a second," not a guarantee
+- **~1-1.5 s for a first-time live enrichment** (DNS/RDAP/geo/AbuseIPDB, measured before the known-bad feed and investigator-lead lookups were added, across six real domains - `benchmarks/enrichment_timing.json`), and back to ~35 ms for repeat lookups thanks to caching. Network-dependent, so quote it as "about a second," not a guarantee
 - **99.32% held-out ML accuracy, 0.49% false-positive rate**
 - **7 scored evidence groups**, plus enrichment/attribution/campaign layers and conversation-thread + network-history context, converging into one verdict
-- **0 known vulnerabilities** in a `pip-audit` scan of all 85 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (85 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
+- **0 known vulnerabilities** in a `pip-audit` scan of all 96 packages in a clean install that mirrors the Docker image, and an `npm audit` of all 102 frontend dependencies; CycloneDX SBOMs generated for both backend (85 components) and frontend (59 components). The clean-environment scan caught outdated `setuptools` CVEs that a dev-environment scan had missed - fixed by pinning
 
 ### Reframe: not a phishing filter - a national email evidence layer
 The real impact isn't blocking one email; it's turning suspicious emails across banks, PSUs, colleges and cybercrime cells into **comparable, exportable forensic cases.** DPDP-conscious masking with Aadhaar Verhoeff validation is a rare, India-specific detail that signals this was built for Indian institutions, not adapted from a generic SOC tool.
@@ -262,7 +262,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 788 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 799 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -382,18 +382,18 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Content-Security-Policy, Strict-Transport-Security and Permissions-Policy headers - CSP live-verified in a real browser against the deployed app's actual map tiles, not just theoretically correct
 - ✅ Dangerous URL schemes explicitly flagged instead of silently dropped: `javascript:`/`data:`/`vbscript:` at full severity (including case, whitespace and control-character obfuscation), and handler schemes (`file:`, `search-ms:`, the `ms-*` family used in Follina-style exploits) at review level
 - ✅ Opt-in, IP-allowlisted trusted-reverse-proxy handling for rate-limiting - `X-Forwarded-For` is never trusted from an unrecognized direct connection, closing a spoofable-identity gap
-- ✅ Mobile-responsive layout and an automated accessibility audit (`security/ACCESSIBILITY_AUDIT.md`): axe-core WCAG 2.1 A/AA clean across 12 UI states, contrast verified on 1,226 text elements (one real failure found and fixed), no horizontal overflow at 375 px. Automated audit only - not a screen-reader test or a WCAG certification
+- ✅ Mobile-responsive layout and an automated accessibility audit (`security/ACCESSIBILITY_AUDIT.md`): axe-core WCAG 2.1 A/AA clean across 12 UI states (audit predates the newest panels: investigator leads and the primary-class chip), contrast verified on 1,226 text elements (one real failure found and fixed), no horizontal overflow at 375 px. Automated audit only - not a screen-reader test or a WCAG certification
 - ✅ Frontend bundle splitting - measured: a single unsplit 542 kB JS bundle became cacheable vendor chunks plus a 67 kB app chunk (total bytes are similar; the win is a small entry chunk and long-lived vendor caching, not less code)
-- ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
+- ✅ CycloneDX SBOMs generated for backend (96 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 96 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
 - ✅ Brand lookalike and display-name spoofing detection - a curated table of Indian banks, government and payment services plus a few global brands; flags lookalike domains (suffix swaps, one-character edits, homoglyphs, brand-plus-keyword combinations) on the sender, Reply-To and linked domains, and display names that invoke a brand from an unrelated domain. Legitimate domains and their subdomains are never flagged. Curated, not exhaustive: an unlisted brand is not covered
 - ✅ Known-bad infrastructure matching - relay IPs checked against the abuse.ch Feodo Tracker botnet command-and-control list and Spamhaus DROP netblocks (cached public feeds, no API key; states fresh/stale/unavailable). A match is a lead, not proof the sender is a bot. Open-relay detection is not offered (it would need active probing)
 - ✅ Gateway-attested earliest node (opt-in via `GATEWAY_RECEIPT_KEY`) - the SMTP gateway signs what it observed (connecting IP, MAIL FROM, HELO) bound to the message bytes using the same attestation mechanism as the receiver evidence. Proven over real SMTP; in a local demo the connecting IP is loopback, so this shows the mechanism, not validation against a real institutional mail server
 - ✅ Investigator leads - registrar and network-owner abuse contacts and registration dates from public RDAP records (opt-in enrichment). Tells an investigator who to contact, never who the sender is; tested against fixture RDAP data, not run against live registries
-- ✅ Five-class primary classification (legitimate / suspicious / impersonated / phishing / fraud-related) - a documented deterministic decision table over model, authentication and rule evidence, shown as a chip in the case view. Not a trained five-class model. 0.91 accuracy on 75 hand-written synthetic fixtures, but only 7% recall on 150 real 2025 phishing messages (21% on a 2024 dev sample after adding homoglyph-display-name and password-expiry-lure rules) with 1 false alarm in 300 legitimate messages, so present it as a high-precision, low-recall triage aid
+- ✅ Five-class primary classification (legitimate / suspicious / impersonated / phishing / fraud-related) - a documented deterministic decision table over model, authentication and rule evidence, shown as a chip in the case view. Not a trained five-class model. 0.91 accuracy on 75 hand-written synthetic fixtures, but only 5% recall on 150 real 2025 phishing messages (higher on the 2024 dev sample where the homoglyph-display-name and password-expiry-lure rules were developed) with 1 false alarm in 300 legitimate messages, so present it as a high-precision, low-recall triage aid
 - ✅ Independent evaluation harness - reproducible run on public corpora not used in training (Nazario 2025 phishing, CC-BY-4.0; SpamAssassin legitimate mail): the classifier flags 98% of the phishing but also 37% of the legitimate mail, mostly promotional newsletters (details in `benchmarks/external_evaluation.md`)
-- ✅ 788 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
+- ✅ 799 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 32 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, non-bugs including a wrongly claimed "no Python 3.12 torch wheel") and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)

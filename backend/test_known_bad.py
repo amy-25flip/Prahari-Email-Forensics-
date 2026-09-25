@@ -20,7 +20,7 @@ def test_matches_exact_and_cidr_and_ignores_private(monkeypatch):
     hops = [{'ips': ['162.243.103.246', '10.0.0.5']}, {'ips': ['1.10.20.9', '8.8.8.8']}]
     out = known_bad.assess(hops, True)
     assert out['feodo_botnet_c2']['matches'] == ['162.243.103.246']
-    assert out['spamhaus_drop']['matches'] == ['1.10.20.9'] or out['spamhaus_drop']['matches'] == []
+    assert out['spamhaus_drop']['matches'] == ['1.10.20.9']
     assert out['feodo_botnet_c2']['status'] == 'fresh'
     found = known_bad.checks(out)
     assert found and 'does not prove' in found[0]['detail']

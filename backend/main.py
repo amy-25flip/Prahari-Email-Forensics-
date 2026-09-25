@@ -353,7 +353,8 @@ class SMTPContext(BaseModel):
     def hostname(cls, value):
         import re
         if value.startswith('[') and value.endswith(']'):      # RFC 5321 address literal, e.g. [192.0.2.1]
-            ipaddress.ip_address(value[1:-1].removeprefix('IPv6:'))
+            literal = value[1:-1]
+            ipaddress.ip_address(literal[5:] if literal.lower().startswith('ipv6:') else literal)
             return value
         if not all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in value.rstrip('.').split('.')):
             raise ValueError('HELO must be a DNS hostname.')

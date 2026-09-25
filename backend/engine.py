@@ -286,7 +286,7 @@ def analyze(raw, source='upload', live=False, context=None):
     for check in brand_checks[:4]:
         flag('identity', 'Look-alike domain' if check['kind'] == 'lookalike_domain' else 'Display-name brand spoofing', check['detail'], 15 if check['kind'] == 'lookalike_domain' else 10)
     homoglyphs = brands.homoglyph_display(parseaddr(str(msg.get('From', '')))[0])
-    if homoglyphs: flag('identity', 'Homoglyph display name', 'Display name mixes Latin letters with look-alike characters from another script (' + ', '.join(homoglyphs) + '); it reads as a brand name but is not the plain ASCII text.', 15)
+    if homoglyphs: flag('identity', 'Homoglyph display name', 'Display name mixes Latin letters with look-alike characters from another script (' + ', '.join(homoglyphs) + '); it can read as a brand name to a person but is not the plain ASCII text; legitimate mixed-script names are rare but possible.', 15)
     auth = authenticate(msg, raw, live, source, context)
     if auth['dkim']['status'] == 'fail': flag('authentication', 'DKIM signature failed', auth['dkim']['detail'], 15)
     if auth['spf']['status'] == 'fail': flag('authentication', 'SPF evaluation failed', auth['spf']['detail'], 15)

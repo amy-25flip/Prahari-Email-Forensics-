@@ -16,7 +16,7 @@ GLOBAL = [
     ('Google', ['google.com', 'googleusercontent.com', 'googleapis.com', 'googleadservices.com', 'gstatic.com', 'googlesyndication.com', 'doubleclick.net', 'youtube.com'], ['google']),
     ('Apple', ['apple.com', 'icloud.com'], ['apple', 'icloud']),
     ('Amazon', ['amazon.com', 'amazon.in', 'amazonaws.com', 'amazonses.com', 'cloudfront.net', 'media-amazon.com'], ['amazon']),
-    ('PayPal', ['paypal.com'], ['paypal']),
+    ('PayPal', ['paypal.com', 'paypalobjects.com'], ['paypal']),
     ('Netflix', ['netflix.com'], ['netflix']),
     ('Flipkart', ['flipkart.com'], ['flipkart']),
     ('DHL', ['dhl.com'], ['dhl']),
@@ -31,7 +31,8 @@ SHORT_TOKENS = {'State Bank of India': ['sbi'], 'HDFC Bank': ['hdfc'], 'ICICI Ba
 
 
 def table():
-    rows = [(e['name'], list(e['domains']), SHORT_TOKENS.get(e['name'], [])) for e in impersonation.INDIA_DEFAULT_IDENTITIES]
+    duplicated = {'Amazon Pay India', 'Google Pay India'}      # covered by the global Amazon / Google rows (their domains are subdomains of those)
+    rows = [(e['name'], list(e['domains']), SHORT_TOKENS.get(e['name'], [])) for e in impersonation.INDIA_DEFAULT_IDENTITIES if e['name'] not in duplicated]
     return rows + GLOBAL
 
 
@@ -49,6 +50,9 @@ def _match(host, name, domains, tokens):
     except UnicodeError: shown = label
     skel = adversarial.skeleton(shown).lower()
     legit_labels = {_label(d) for d in domains[:2]}          # primary domains only: generic infrastructure words (windows, azure) are not brand names
+    for legit in domains[:2]:
+        if legit in host and host != legit and not host.endswith('.' + legit):
+            return f'contains the genuine domain {legit} inside a different domain'
     if label in legit_labels:
         return 'same brand name under a different domain suffix'
     if skel in legit_labels:
@@ -63,8 +67,13 @@ def _match(host, name, domains, tokens):
             return f'digits substituted for letters spell {legit}'
     parts = [p for p in re.split(r'-', skel) if p]
     for token in tokens:
-        if token in parts or (len(token) >= 5 and token in skel and LURE.search(skel)):
+        if token in parts or (len(token) >= 5 and token in skel and LURE.search(skel.replace(token, ' '))):
             return f'contains the brand name "{token}" inside an unrelated domain'
+    registrable = PSL.privatesuffix(host) or host
+    for sub_label in host[:len(host) - len(registrable)].strip('.').split('.'):        # brand-plus-lure words in a subdomain of an unrelated domain
+        for token in tokens:
+            if len(token) >= 5 and token in sub_label and LURE.search(sub_label.replace(token, ' ')):
+                return f'a subdomain uses the brand name "{token}" with lure words under an unrelated domain'
     return ''
 
 
@@ -79,16 +88,15 @@ def assess(sender, reply_to, url_hosts):
         if host: hosts.setdefault(host, 'link')
     checks = []
     rows = table()
-    every = [d for _, ds, _ in rows for d in ds]
     for name, domains, tokens in rows:
         for host, where in hosts.items():
-            if _legit(host, every): continue
+            if _legit(host, domains): continue
             why = _match(host, name, domains, tokens)
             if why:
                 checks.append({'kind': 'lookalike_domain', 'brand': name, 'host': host, 'where': where,
                                'detail': f'{where.capitalize()} domain {host} may imitate {name}: {why}. Similarity is not proof of impersonation.'})
         shown = adversarial.skeleton(display).lower()
-        if display and source and not _legit(source, every):
+        if display and source and not _legit(source, domains):
             words = [name.lower()] + tokens
             leftover = shown
             for w in sorted(words, key=len, reverse=True):

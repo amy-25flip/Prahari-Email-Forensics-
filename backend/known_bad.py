@@ -31,8 +31,9 @@ def parse(text):
 def refresh(name):
     entry = _state[name]
     now = time.time()
-    if now - entry['attempt'] < 300 or (entry['fetched'] and now - entry['fetched'] < 21600): return
-    entry['attempt'] = now
+    with _lock:
+        if now - entry['attempt'] < 300 or (entry['fetched'] and now - entry['fetched'] < 21600): return
+        entry['attempt'] = now
     try:
         with requests.get(FEEDS[name]['url'], timeout=(2, 4), stream=True, allow_redirects=False, headers={'User-Agent': 'prahari-forensics/1.0'}) as response:
             if response.status_code != 200: return
@@ -42,7 +43,8 @@ def refresh(name):
                 if size > 2_000_000: return
                 data.append(chunk)
         nets = parse(b''.join(data).decode('utf-8', errors='ignore'))
-        if nets: entry['nets'], entry['fetched'] = nets, time.time()
+        if nets:
+            with _lock: entry['nets'], entry['fetched'] = nets, time.time()
     except (requests.RequestException, ValueError): pass
 
 
@@ -59,8 +61,8 @@ def assess(hops, enabled):
         if not enabled:
             out[name] = {'status': 'disabled', 'label': meta['label'], 'matches': []}
             continue
+        refresh(name)                      # network I/O happens outside any lock; the attempt stamp stops concurrent duplicate fetches
         with _lock:
-            refresh(name)
             nets, fetched = _state[name]['nets'], _state[name]['fetched']
         status = 'unavailable' if not fetched else 'fresh' if 0 <= time.time() - fetched < 86400 else 'stale'
         matches = [ip for ip in observed if any(ipaddress.ip_address(ip) in net for net in nets if net.version == ipaddress.ip_address(ip).version)]

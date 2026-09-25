@@ -37,8 +37,29 @@ def test_synthetic_fixture_evaluation(monkeypatch):
 
 
 def test_expiry_lure_needs_link_and_unauthenticated_sender():
-    base = {'findings': [{'title': 'Account-expiry pressure', 'points': 10}], 'score': 10, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': ''}
+    base = {'findings': [{'title': 'Account-expiry pressure', 'points': 10}], 'score': 10, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': 'Your password expired today.'}
     lure = dict(base, urls=[{'url': 'http://x.example'}], authentication={'dmarc': {'status': 'none'}})
     assert classification.classify(lure)['primary'] == 'phishing'
     assert classification.classify(dict(lure, authentication={'dmarc': {'status': 'pass'}}))['primary'] == 'suspicious'
     assert classification.classify(dict(lure, urls=[]))['primary'] == 'suspicious'
+
+
+def test_qr_link_and_bare_expiry_notice_do_not_decide_phishing():
+    base = {'score': 15, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': 'Register here.', 'urls': [{'url': 'http://x.example'}], 'authentication': {'dmarc': {'status': 'none'}}}
+    qr = dict(base, findings=[{'title': 'QR code in attachment decodes to a link', 'points': 15}])
+    assert classification.classify(qr)['primary'] == 'suspicious'
+    qr_cred = dict(qr, findings=qr['findings'] + [{'title': 'Credential pressure', 'points': 10}])
+    assert classification.classify(qr_cred)['primary'] == 'phishing'
+    notice = dict(base, findings=[{'title': 'Account-expiry pressure', 'points': 10}], body='Your account password will expire in 5 days. Renew at the portal.')
+    assert classification.classify(notice)['primary'] == 'suspicious'
+    urgent = dict(notice, body='Your password has expired today. Sign in immediately.')
+    assert classification.classify(urgent)['primary'] == 'phishing'
+
+
+def test_authenticated_credential_notice_is_not_phishing_without_corroboration():
+    notice = {'findings': [{'title': 'Credential pressure', 'points': 10}], 'score': 10, 'ml': {'status': 'unavailable'}, 'subject': '', 'body': 'Please verify your KYC.',
+              'urls': [], 'authentication': {'dmarc': {'status': 'pass'}}}
+    assert classification.classify(notice)['primary'] == 'suspicious'
+    assert classification.classify(dict(notice, authentication={'dmarc': {'status': 'none'}}))['primary'] == 'phishing'
+    lookalike = dict(notice, findings=notice['findings'] + [{'title': 'Look-alike domain', 'points': 15}])
+    assert classification.classify(lookalike)['primary'] == 'phishing'
