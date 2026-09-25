@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
+import authz
 import db_encryption
 
 DATA = Path(os.getenv('DATA_DIR', str(Path(__file__).parent / 'data')))
@@ -52,6 +53,37 @@ def session(cookie):
     return hashed, cookie
 
 
+WORKSPACE_SID = hashlib.sha256(b'prahari-shared-workspace-v1').hexdigest()
+GATEWAY_SID = hashlib.sha256(b'prahari-gateway-session-v1').hexdigest()
+
+
+_fixed_refreshed = {}
+FIXED_REFRESH_SECONDS = 300      # retention is at least an hour, so refreshing the expiry every 5 minutes keeps it alive
+
+
+def _fixed_session(sid):
+    """Create/extend a fixed session row. Throttled: every authenticated request calls this, and each call is a write transaction."""
+    key, now = (str(DATA), sid), time.time()
+    if now - _fixed_refreshed.get(key, 0.0) < FIXED_REFRESH_SECONDS:
+        return sid
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('INSERT INTO sessions VALUES (?,?) ON CONFLICT(id) DO UPDATE SET expires=excluded.expires', (sid, now + RETENTION_SECONDS))
+    _fixed_refreshed[key] = now
+    return sid
+
+
+def workspace_session():
+    """The single shared session used when role-based auth is on: every authenticated person works in one workspace,
+    so an analyst's case is visible to the reviewer who must approve it. Expiry slides forward on each use."""
+    return _fixed_session(WORKSPACE_SID)
+
+
+def gateway_session():
+    """Stable session for mail analysed by the pre-delivery gateway (the shared workspace when role auth is on)."""
+    return _fixed_session(WORKSPACE_SID if authz.enabled() else GATEWAY_SID)
+
+
 def cleanup():
     with connect() as db:
         db.execute('DELETE FROM sessions WHERE expires < ?', (time.time(),))
@@ -60,7 +92,7 @@ def cleanup():
 def append(db, sid, payload):
     row = db.execute('SELECT hash FROM events WHERE session=? ORDER BY seq DESC LIMIT 1', (sid,)).fetchone()
     previous = row['hash'] if row else '0' * 64
-    encoded = canonical(payload)
+    encoded = canonical(authz.stamp(payload))
     digest = hashlib.sha256((previous + encoded).encode()).hexdigest()
     db.execute('INSERT INTO events(session,payload,previous,hash) VALUES (?,?,?,?)', (sid, encoded, previous, digest))
 

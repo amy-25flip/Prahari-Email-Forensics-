@@ -23,13 +23,14 @@ export default function NetworkHistory({ value, openCase }) {
 
   const recurring = value.recurring || []
   const hasRecurring = recurring.length > 0
+  const cross = value.cross_session || []
 
   return (
     <section className="section" aria-label="Indicator Network History">
       <div className="section-head">
         <h3>Session Indicator History</h3>
-        <span className={`badge ${hasRecurring ? 'warn' : 'good'}`}>
-          {hasRecurring ? `${recurring.length} recurring indicator${recurring.length === 1 ? '' : 's'}` : 'First observation'}
+        <span className={`badge ${hasRecurring || cross.length ? 'warn' : 'good'}`}>
+          {hasRecurring ? `${recurring.length} recurring indicator${recurring.length === 1 ? '' : 's'}` : cross.length ? `${cross.length} seen in earlier analyses` : 'First observation'}
         </span>
       </div>
 
@@ -47,7 +48,7 @@ export default function NetworkHistory({ value, openCase }) {
                     </span>
                   </div>
                   <span className="badge warn" style={{ fontSize: 10 }}>
-                    Seen in {item.prior_count} prior case{item.prior_count === 1 ? '' : 's'}
+                    Seen in {item.occurrence_count} prior case{item.occurrence_count === 1 ? '' : 's'}
                   </span>
                 </div>
                 <div className="mono" style={{ fontSize: 11, color: '#a3e635', wordBreak: 'break-all', marginBottom: 8 }}>
@@ -57,10 +58,10 @@ export default function NetworkHistory({ value, openCase }) {
                   <span>
                     First: {item.first_seen ? (typeof item.first_seen === 'number' ? new Date(item.first_seen * 1000).toLocaleString() : item.first_seen) : 'Unknown'}
                   </span>
-                  {item.prior_case_ids?.length > 0 && (
+                  {item.case_ids?.length > 0 && (
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                       <span>Prior cases:</span>
-                      {item.prior_case_ids.map(cid => (
+                      {item.case_ids.map(cid => (
                         <button
                           key={cid}
                           className="secondary"
@@ -82,6 +83,19 @@ export default function NetworkHistory({ value, openCase }) {
         <div className="empty" style={{ padding: '18px 12px' }}>
           <History size={24} style={{ color: '#a3e635' }} />
           <p>No prior occurrences of these sender domains, IPs, URLs, or hashes in this session's case history.</p>
+        </div>
+      )}
+
+      {cross.length > 0 && (
+        <div className="cross-session" role="region" aria-label="Seen across the deployment">
+          <h4>Seen across the deployment</h4>
+          {cross.map((c, i) => (
+            <div key={i} className="cross-item">
+              <span className="badge warn">{TYPE_LABELS[c.type] || c.type}</span>
+              <span className="mono" style={{ wordBreak: 'break-all' }}>{c.value}</span>
+              <small>{c.seen_count} earlier analys{c.seen_count === 1 ? 'is' : 'es'} - {c.other_sessions} other session{c.other_sessions === 1 ? '' : 's'} - last {new Date(c.last_seen * 1000).toLocaleDateString()}</small>
+            </div>
+          ))}
         </div>
       )}
 

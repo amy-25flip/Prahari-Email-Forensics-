@@ -45,6 +45,13 @@ def build(result):
     if (result.get('prompt_injection') or {}).get('status') not in (None, 'clear') or result.get('adversarial'):
         add('next', 'Do not rely on automated AI summaries of this message; review the raw source manually.',
             'The message contains content crafted to manipulate an automated classifier or AI assistant.')
+    language = result.get('language') or {}
+    if language.get('model_coverage') == 'unsupported':
+        add('next', f"Have a reader of this language ({language.get('script', 'non-English')}) review the message; do not treat a low content-model score as reassurance.",
+            'The content classifier is English-trained and not validated for this text, so its result is weaker evidence here.')
+    if any(f.get('title') == 'Image-only message' for f in result.get('findings', [])):
+        add('next', 'Open the image in an isolated viewer and read it manually; this build does not extract text from images.',
+            'The message body is almost empty and carries image content.')
     related = (result.get('assessment') or {}).get('network_history') or {}
     if conversation.get('checks') or related.get('checks'):
         add('next', 'Review earlier messages in the same thread and from the same infrastructure before deciding; a single change mid-thread is a stronger signal than any one email.',

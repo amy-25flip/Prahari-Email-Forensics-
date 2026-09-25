@@ -31,3 +31,22 @@
 .playbook-step.now .playbook-tag{color:#f68181}.playbook-step.next .playbook-tag{color:#e6b16f}
 .playbook-step strong{font-size:12px;font-weight:500;line-height:1.5}
 .playbook-step small{color:#9ca3b0;line-height:1.5}
+
+.auth-shell{min-height:100vh;display:grid;place-items:center;padding:24px}
+.auth-card{width:min(440px,92vw)}
+.language-notice{border-left:3px solid #e6b16f;padding-left:14px}
+.language-notice h2{display:flex;align-items:center;gap:8px}
+.landing-open{margin-top:8px;font-size:11px}
+.landing-panel{margin-top:10px;padding:10px 12px;border:1px solid #292d36;border-radius:6px;background:#0d0f17;display:grid;gap:8px}
+.landing-confirm{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:#c1c8d1}
+.landing-result{display:grid;gap:6px;font-size:12px}
+.landing-final{font-size:11px;color:#a3e635;word-break:break-all;margin:0}
+.landing-findings{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+.landing-findings small{color:#9ca3b0;line-height:1.5}
+.landing-result pre{max-height:160px;overflow:auto}
+.quarantine-item{border-bottom:1px solid #292f38;padding-bottom:10px}
+.quarantine .case-row{flex-wrap:wrap}
+.cross-session{margin-top:12px;display:grid;gap:8px}
+.cross-session h4{margin:0;font-size:12px;color:#c9cdd7}
+.cross-item{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border:1px solid #282d38;border-radius:6px;background:#0e1118;font-size:11px}
+.cross-item small{color:#9ca3b0}

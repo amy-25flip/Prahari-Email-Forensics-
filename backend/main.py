@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
+import authz
 import engine
 import local_model
 import store
@@ -58,6 +59,8 @@ async def lifespan(app):
         while not stop.is_set():
             try:
                 store.cleanup()
+                import ledger
+                ledger.cleanup()
                 if os.getenv('DISABLE_FEED_REFRESH') != '1' and time.monotonic() >= next_refresh:
                     reputation.refresh()
                     next_refresh = time.monotonic() + reputation.REFRESH_SECONDS
@@ -66,11 +69,18 @@ async def lifespan(app):
             stop.wait(60)
     worker = threading.Thread(target=maintain, daemon=True)
     worker.start()
+    gateway_port = os.getenv('GATEWAY_SMTP_PORT', '').strip()
+    if gateway_port:
+        try:
+            start_gateway(int(gateway_port), os.getenv('GATEWAY_SMTP_HOST', '127.0.0.1'))
+        except Exception:
+            logging.exception('Pre-delivery gateway failed to start; continuing without it')
     retry_drain = None if os.getenv('DISABLE_GMAIL_RETRY_DRAIN') == '1' else asyncio.create_task(_dead_letter_drain_loop())
     try:
         yield
     finally:
         stop.set()
+        stop_gateway()
         worker.join(timeout=1)
         if retry_drain is not None:
             retry_drain.cancel()
@@ -197,8 +207,28 @@ async def boundary(request: Request, call_next):
         request._body = b''.join(chunks)
     if request.url.path in ('/api/health', '/api/ready', '/api/gmail/push') or not request.url.path.startswith('/api/'):
         return await call_next(request)
+    actor_token = None
+    if authz.enabled() and not authz.is_exempt(request.url.path):
+        actor = authz.authenticate(request.headers.get('authorization'))
+        if actor is None:
+            return JSONResponse({'detail': 'Authentication required: send a valid access token.'}, status_code=401, headers={'WWW-Authenticate': 'Bearer'})
+        needed = authz.required_role(request.method, request.url.path, request.query_params)
+        if not authz.allows(actor.role, needed):
+            return JSONResponse({'detail': f'Your role ({actor.role}) cannot do this; {needed} access is required.'}, status_code=403)
+        request.state.actor = actor
+        actor_token = authz.current_actor.set(actor)
     try:
-        sid, cookie = store.session(request.cookies.get('efp_session'))
+        return await _with_session(request, call_next)
+    finally:
+        if actor_token is not None: authz.current_actor.reset(actor_token)
+
+
+async def _with_session(request, call_next):
+    try:
+        if getattr(request.state, 'actor', None) is not None:
+            sid, cookie = store.workspace_session(), None      # authenticated people share one workspace (see authz.py)
+        else:
+            sid, cookie = store.session(request.cookies.get('efp_session'))
     except ValueError:
         return JSONResponse({'detail': 'Server capacity reached. Please retry later.'}, status_code=503)
     request.state.sid = sid
@@ -258,15 +288,22 @@ async def response_security(request: Request, call_next):
     return response
 
 
+@app.get('/api/whoami')
+def whoami(request: Request):
+    actor = getattr(request.state, 'actor', None)
+    return {'auth_required': authz.enabled(), 'actor': actor.name if actor else None, 'role': actor.role if actor else None}
+
+
 @app.get('/api/health')
 def health():
     import ip_reputation, attachment_reputation, db_encryption, gmail_integration
-    return {'status': 'ready', 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': store.RETENTION_SECONDS / 3600,
+    return {'status': 'ready', 'auth_required': authz.enabled(), 'model': local_model.status, 'model_detail': local_model.detail, 'retention_hours': store.RETENTION_SECONDS / 3600,
             'reputation': reputation.status(),
             'ip_reputation': {'configured': bool(ip_reputation.config())},
             'attachment_reputation': {'configured': bool(attachment_reputation.config())},
             'db_encryption': db_encryption.status(),
-            'gmail_push': {'configured': bool(os.getenv('GMAIL_PUSH_AUDIENCE')) and gmail_integration.configured()}}
+            'gmail_push': {'configured': bool(os.getenv('GMAIL_PUSH_AUDIENCE')) and gmail_integration.configured()},
+            'gateway': {'listening': gateway_state['controller'] is not None, 'port': gateway_state['port']}}
 
 
 @app.get('/api/ready')
@@ -322,12 +359,15 @@ class SMTPContext(BaseModel):
 def execute(request, raw, source, live, sample=False, context=None, receiver=None):
     started = time.perf_counter()
     sid, now = request.state.sid, time.time()
+    actor = getattr(request.state, 'actor', None)
+    bucket = actor.name if actor else sid          # per person when authenticated (the workspace session is shared)
     with rate_lock:
         for key in list(limits):
             if not limits[key] or limits[key][-1] < now - 60: del limits[key]
-        hits = limits[sid]
+        hits = limits[bucket]
         while hits and hits[0] < now - 60: hits.popleft()
-        if len(hits) >= 10: raise HTTPException(429, 'Limit: 10 analyses per minute.')
+        cap = 60 if source == 'gateway' else 10
+        if len(hits) >= cap: raise HTTPException(429, f'Limit: {cap} analyses per minute.')
         hits.append(now)
     if not slots.acquire(blocking=False): raise HTTPException(429, 'Analysis workers busy. Please retry shortly.')
     try:
@@ -358,8 +398,13 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
         result['assessment']['checks'] = result['assessment']['checks'] + result['assessment']['conversation']['checks']
         import finding_ids
         finding_ids.assign(result['assessment']['checks'], 'kind')
-        import network_history
-        result['assessment']['network_history'] = network_history.assess(result, prior_reports)
+        import network_history, ledger
+        ledger_pairs = ledger.pairs_for(result)
+        try: ledger_hits = ledger.lookup(ledger_pairs, sid)
+        except Exception:
+            logging.exception('Indicator ledger lookup failed; continuing without cross-session history')
+            ledger_hits = {}
+        result['assessment']['network_history'] = network_history.assess(result, prior_reports, ledger_hits)
         if result['assessment']['checks'] and result['triage']['priority'] in ('routine', 'incomplete'):
             result['triage'].update(priority='review', label='Review required',
                                    reasons=['Supplemental header, identity or attachment checks require review.'],
@@ -369,7 +414,11 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
         result['elapsed_ms'] = round((time.perf_counter() - started) * 1000)
         result['sample'] = sample
         result['fraud_score'] = result['score']
-        return store.save(sid, result, raw)
+        saved = store.save(sid, result, raw)
+        if not sample:
+            try: ledger.record(ledger_pairs, sid)
+            except Exception: logging.exception('Indicator ledger record failed; the analysis result is unaffected')
+        return saved
     except ValueError as exc:
         msg = str(exc)
         # A store capacity / session ceiling is a TRANSIENT condition -- the email
@@ -446,6 +495,19 @@ def _gmail_httperror_is_transient(status, exc):
     return False
 
 
+def _gmail_action(sid, mid, result):
+    """Optional protective label/quarantine (see gmail_actions.py); records what happened in the custody chain."""
+    import gmail_actions
+    outcome = gmail_actions.apply(mid, result)
+    if outcome is None: return
+    token = authz.current_actor.set(authz.SYSTEM_GMAIL)
+    try:
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, sid, {'action': 'gmail_action', 'id': result.get('id'), 'at': time.time(), **outcome})
+    finally: authz.current_actor.reset(token)
+
+
 async def _process_gmail_message(request, mid, history_id):
     """Claim, fetch and analyze one Gmail message id, with the same bounded
     in-request retry for transient failures used for both freshly-notified ids
@@ -475,6 +537,8 @@ async def _process_gmail_message(request, mid, history_id):
                     'Gmail push message analyzed: historyId=%s messageId=%s caseId=%s score=%s risk=%s',
                     history_id, mid, result.get('id'), result.get('score'), result.get('risk'))
                 stored = True
+                try: await run_in_threadpool(_gmail_action, request.state.sid, mid, result)
+                except Exception: gmail_push_logger.exception('Gmail action step failed for messageId=%s; ingestion is unaffected', mid)
                 return 'stored', result
             except HTTPException as exc:
                 # 429 = OUR OWN transient capacity (the shared 2-slot analysis
@@ -946,6 +1010,11 @@ def record_review(cid: str, payload: ReviewDecision, request: Request):
     if payload.decision == 'approved' and elevated and not payload.acknowledged:
         raise HTTPException(409, 'Acknowledge the findings before recording approval.')
     if len(payload.note.strip()) < 20: raise HTTPException(400, 'Provide a substantive review note.')
+    actor = getattr(request.state, 'actor', None)
+    if payload.decision == 'approved' and actor is not None and os.getenv('FOUR_EYES', '1') != '0':
+        creator = next((e['event'].get('actor') for e in store.case_events(request.state.sid, cid) if e['event'].get('action') == 'analyze'), None)
+        if creator and creator == actor.name:
+            raise HTTPException(403, 'Four-eyes rule: the person who analyzed this case cannot approve it. Ask another reviewer (or record a hold).')
     event = {'action': 'review', 'id': cid, 'at': time.time(), **payload.model_dump(),
              'scope': 'Session analyst decision only; no mail delivery, release or external action performed.'}
     with store.connect() as db:
@@ -1194,6 +1263,139 @@ def export(cid: str, fmt: str, request: Request):
     else: raise HTTPException(400, 'Choose json, csv, pdf, cef, stix or evidence')
     extension = {'stix': 'stix.json', 'evidence': 'evidence.md'}.get(fmt, fmt)
     return Response(body, media_type=mime, headers={'Content-Disposition': f'attachment; filename="case-{cid}.{extension}"'})
+
+
+gateway_state = {'controller': None, 'port': None}
+
+
+def _maildrop():
+    import gateway
+    return gateway.Maildrop(Path(store.DATA) / 'maildrop')
+
+
+def _gateway_analyze(raw, envelope):
+    """Bridge from the SMTP gateway to the normal analysis pipeline (fixed gateway session, system actor)."""
+    import types, gateway
+    request = types.SimpleNamespace(state=types.SimpleNamespace(sid=store.gateway_session(), actor=None))
+    token = authz.current_actor.set(authz.SYSTEM_GATEWAY)
+    try:
+        return execute(request, raw, 'gateway', False)
+    except HTTPException as exc:
+        if exc.status_code == 429: raise gateway.GatewayTransient() from exc
+        raise
+    finally: authz.current_actor.reset(token)
+
+
+def _gateway_event(action, item_id, result):
+    token = authz.current_actor.set(authz.SYSTEM_GATEWAY)
+    try:
+        sid = store.gateway_session()      # resolved BEFORE the write transaction: it takes its own write lock
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, sid, {'action': 'gateway_' + action, 'id': result.get('id'), 'item': item_id, 'at': time.time()})
+    except Exception:
+        logging.exception('Gateway audit event failed; the message decision is unaffected')
+    finally: authz.current_actor.reset(token)
+
+
+def start_gateway(port, host='127.0.0.1'):
+    import gateway
+    if gateway_state['controller'] is not None: return gateway_state['port']
+    handler = gateway.GatewayHandler(_gateway_analyze, _maildrop(), _gateway_event)
+    gateway_state['controller'] = gateway.start(handler, host, port)
+    gateway_state['port'] = gateway_state['controller'].server.sockets[0].getsockname()[1]
+    return gateway_state['port']
+
+
+def stop_gateway():
+    controller, gateway_state['controller'], gateway_state['port'] = gateway_state['controller'], None, None
+    if controller is not None:
+        try: controller.stop()
+        except Exception: logging.exception('Gateway did not stop cleanly')
+
+
+def _quarantine_actor(request):
+    actor = getattr(request.state, 'actor', None)
+    return actor.name if actor else 'analyst (open mode)'
+
+
+@app.get('/api/quarantine')
+def quarantine_list():
+    import gateway
+    drop = _maildrop()
+    return {'held': drop.list_held(), 'inbox_count': len(list(drop.inbox.glob('*.eml'))),
+            'gateway': {'listening': gateway_state['controller'] is not None, 'port': gateway_state['port'], 'hold_score': gateway.hold_score()},
+            'note': 'Held messages were stopped before reaching any mailbox. Releasing or discarding is a logged decision.'}
+
+
+@app.get('/api/quarantine/{qid}')
+def quarantine_detail(qid: str):
+    drop = _maildrop()
+    try: meta = drop.load_meta(qid)
+    except ValueError: raise HTTPException(400, 'Invalid message id')
+    if not meta: raise HTTPException(404, 'Held message not found')
+    case = store.get(store.gateway_session(), meta['case_id']) if meta.get('case_id') else None
+    return {'meta': meta, 'case': case}
+
+
+@app.get('/api/gateway/inbox')
+def gateway_inbox():
+    return {'messages': _maildrop().list_inbox()}
+
+
+def _close_quarantine(qid, request, action):
+    drop = _maildrop()
+    who = _quarantine_actor(request)
+    try: meta = drop.release(qid, who) if action == 'release' else drop.discard(qid, who)
+    except ValueError: raise HTTPException(400, 'Invalid message id')
+    if not meta: raise HTTPException(404, 'No held message with that id (it may already be released or discarded).')
+    sid = store.gateway_session()
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        store.append(db, sid, {'action': 'quarantine_' + action, 'id': meta.get('case_id'), 'item': qid, 'at': time.time(), 'by': who})
+    return meta
+
+
+@app.post('/api/quarantine/{qid}/release')
+def quarantine_release(qid: str, request: Request): return _close_quarantine(qid, request, 'release')
+
+
+@app.post('/api/quarantine/{qid}/discard')
+def quarantine_discard(qid: str, request: Request): return _close_quarantine(qid, request, 'discard')
+
+
+class LandingInspect(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    url: str = Field(min_length=8, max_length=2048)
+    confirm: bool = Field(strict=True)
+
+
+landing_hits = defaultdict(deque)
+
+
+@app.post('/api/cases/{cid}/urls/inspect')
+def inspect_landing_page(cid: str, payload: LandingInspect, request: Request):
+    """Analyst-triggered static inspection of ONE link that appears in this case (see landing_page.py for the safety model)."""
+    if os.getenv('LANDING_INSPECT_ENABLED', '1') == '0': raise HTTPException(403, 'Landing-page inspection is disabled on this server.')
+    if not payload.confirm: raise HTTPException(400, "Confirm that the destination will see this server's IP address.")
+    case = get_case(cid, request)
+    if payload.url not in {u.get('url') for u in case.get('urls', [])}: raise HTTPException(400, "That URL is not one of this case's links.")
+    sid, now = request.state.sid, time.time()
+    with rate_lock:
+        hits = landing_hits[sid]
+        while hits and hits[0] < now - 60: hits.popleft()
+        if len(hits) >= 6: raise HTTPException(429, 'Limit: 6 landing-page inspections per minute.')
+        hits.append(now)
+    if not slots.acquire(blocking=False): raise HTTPException(429, 'Analysis workers busy. Please retry shortly.')
+    try:
+        import landing_page
+        result = landing_page.inspect(payload.url)
+        with store.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            store.append(db, sid, {'action': 'landing_inspect', 'id': cid, 'url': payload.url[:500], 'status': result.get('status'),
+                                   'final_url': str(result.get('final_url') or '')[:500], 'at': time.time()})
+        return result
+    finally: slots.release()
 
 
 DIST = Path(__file__).resolve().parents[1] / 'frontend' / 'dist'

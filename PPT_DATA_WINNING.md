@@ -60,12 +60,17 @@ It detects phishing, authenticates the sender, traces relay infrastructure, scor
 - **AI phishing detection:** team-trained BERT, **99.32% held-out accuracy**, hardened against truncation-shift evasion via sliding-window inference (0% -> 95% detection on our own attack re-run - see Slide 3)
 - **Sender authentication:** SPF, DKIM, DMARC (incl. subdomain policy), ARC - all four, not the usual one or two
 - **AI-manipulation detection that resists disguise:** catches hidden prompt-injection and tokenizer-evasion attacks even when hidden behind homoglyphs or zero-width characters
-- **Quishing + BEC defense:** QR codes hidden inside image and PDF attachments, plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
+- **Quishing + image-only phishing + BEC defense:** QR codes and readable text hidden inside image and PDF attachments (OCR, English/Latin script), plus mid-thread payment/UPI changes and reply-to swaps a single-email scan would miss
+- **Language-aware verdicts:** detects Hindi, Hinglish, code-mixed and regional-script text, tells the analyst when the English-trained model is outside its validated coverage, and applies transparent localized phishing rules
 
 **Investigate & Prove**
 - **Relay geo-map + reputation fusion:** hop-by-hop infrastructure tracing against PhishTank, VirusTotal, AbuseIPDB and Tor exit lists
 - **Cross-case evidence graph:** typed nodes (sender, domain, relay IP, URL, attachment hash, thread) linked with per-link confidence, not a flat case list
 - **Campaign correlation:** links related emails by shared indicators and a hybrid of character-shingle, TF-IDF and SimHash body-similarity
+- **Alerts before delivery:** a pre-delivery SMTP gateway analyses mail before any mailbox sees it, holds high-risk messages for analyst release or discard, and stamps clean ones with risk headers (a locally testable gateway model, not a Gmail integration)
+- **Analyst controls:** per-person role tokens (viewer / analyst / admin), every audit-chain event stamped with who did it, and a four-eyes rule so the analyst who ran a case cannot approve it
+- **Landing-page inspection:** analyst-triggered, static, SSRF-hardened fetch that describes what a link's page is (credential forms, cross-domain posts, brand cues) without running any script
+- **Cross-session memory:** a hashed indicator ledger shows when a sender, link or reply address has appeared in earlier analyses across sessions, without storing any case content
 - **Court-supporting evidence:** SHA-256 hash chain + Bitcoin timestamp anchor - tamper-evident, independently verifiable - plus a one-click electronic-evidence support pack (manifest, hashes, custody trail, draft declaration for a human signer)
 - **SOC-ready, DPDP-conscious output:** PDF (correct Hindi/Devanagari rendering), JSON, CSV, CEF, STIX 2.1 (MISP-importable), Splunk - Aadhaar, PAN, UPI and mobile numbers auto-masked, optional email masking, and a per-export masking summary
 
@@ -111,8 +116,8 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **645 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
-- Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
+- **769 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
+- Frontend build/lint clean (0 oxlint warnings); browser extension 9/9 tests passing (including the click-time warning)
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
 - **Multi-round independent AI code review, not self-graded:** two separate review passes found and closed real gaps (a spoofable rate-limit header, a duplicated security-header bug), every fix backed by a regression test
@@ -132,7 +137,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 645 backend tests green
+- 769 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -166,10 +171,11 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 ### Planned Enhancements (Next Phase - Research-Informed)
 *Say "planned" or "roadmap" - never "built" or "live." Grounded in 5 papers reviewed Sept 2026 (SAHF-PD, PhishTrace, PhishLumos, PAM 2025, BEC Systematic Review - full citations on Slide 6).*
 
-- OCR for arbitrary in-image phishing text (QR-code decoding in images and PDFs is already built - OCR is the remaining gap)
-- Selective landing-page inspection for unresolved links (isolated worker, no credentials used)
+- OCR for Indic scripts (Hindi and regional languages) - today's OCR reads English/Latin script only
+- Rendered-page screenshots and visual brand matching for landing pages (today: static, script-free inspection)
 - Calibrated probability scores (Brier score, reliability diagrams)
 - Learned multimodal fusion model, replacing today's rule-based score caps
+- Live-account verification of the Gmail label/quarantine actions, and SSO/OIDC identity for roles (both exist for testing today: the Gmail actions are unit-tested against a fake Gmail service only, and roles use per-person bearer tokens)
 
 Phrase to use: **"Truthful forensics beats fake certainty."**
 
@@ -256,12 +262,12 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 645 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 769 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
 | 8 | User Experience (UX) | 10% | Cross-case evidence graph, conversation-aware BEC checks, analyst notes/assignment and triage workflow - built to be used, not just demoed once |
-| 9 | Future Progression | 5% | Roadmap is explicitly research-grounded (5 papers, Slide 6), not a wishlist - image OCR, calibrated scoring, multilingual detection |
+| 9 | Future Progression | 5% | Roadmap is explicitly research-grounded (5 papers, Slide 6), not a wishlist - Indic-script OCR, calibrated scoring, multilingual detection |
 
 **How to use this table:** if a judge's question maps to one of these rows, answer with the specific thing in that row - not a generic "we built a lot of features" answer. Specificity is what separates a 9 from a 7 on a rubric like this.
 
@@ -280,8 +286,11 @@ A: Only when explicitly enabled (`TRUSTED_PROXY_HOPS` opt-in, off by default) an
 **Q: Does Gmail Guard use an official Gmail API?**
 A: The push-ingestion path (Gmail Pub/Sub) does, with OIDC-authenticated webhooks. The browser-extension banner reads Gmail's own page markup to show a live risk score inline - that's inherently coupled to Gmail's frontend, which we say plainly rather than oversell as an official integration. It's live-verified today; the Pub/Sub path is the production-grade one.
 
-**Q: Is "case assignment" real access control?**
-A: No, and we don't claim it is. It's a lightweight, free-text ownership label for solo/small-team triage, not authentication or RBAC. Real multi-analyst access control is explicitly on the roadmap, not claimed as built.
+**Q: Is access control real?**
+A: The roles are real, the case-assignment field is not. With `ROLE_TOKENS` set, every API route enforces a viewer / analyst / admin role from a per-person bearer token (unknown routes default to admin-only), every audit-chain event is stamped with the actor, and a four-eyes rule stops the person who analyzed a case from approving it. It is application-level access control, not an identity provider: there is no SSO, and "assignment" itself remains a free-text triage label. Left unset, the app runs open exactly as before.
+
+**Q: The PS asks for alerts before user interaction - do you do that?**
+A: At two levels, and we are precise about each. The pre-delivery SMTP gateway analyses a message before it reaches any mailbox and holds high-risk ones for analyst review - proven end to end over real SMTP, but it is a gateway model for an institution's own mail flow, not an interception of Gmail. Inside Gmail, the extension shows the risk banner and, once a high-risk verdict is in, asks for confirmation on link clicks (best effort, not a security boundary). Gmail label/quarantine actions exist but are unit-tested against a fake Gmail service only; we have not run them against a live account and do not claim to.
 
 **Q: Bitcoin anchoring - can you prove a case's timestamp right now, live?**
 A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We have a real demo proof, submitted ahead of time and now **confirmed in Bitcoin block 968372** (`demo/bitcoin_proof/demo_proof.json`; run `demo_proof.py check` to re-verify it live against a public block explorer). It anchors the real hash-chain head of a sample-case session - proof that the head hash existed by that block, not proof the email is genuine. Confirmation for a fresh case still takes hours, and we say so.
@@ -309,7 +318,8 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Adversarial NLP-evasion detector (homoglyph + zero-width raw-vs-normalized probability delta)
 - ✅ Authentication-aware ML fusion - a content-only signal from a cryptographically verified sender no longer inflates the score
 - ✅ Social-engineering language rules (credential pressure, payment diversion, verification avoidance)
-- ✅ Quishing (QR-in-attachment) detection - QR codes hidden inside PNG/JPEG/GIF/BMP/WEBP images and on the first two pages of PDF attachments (rendered at bounded resolution, with tolerant fallback decoders) are decoded and scored through the same URL reputation pipeline as a normal link. (OCR on arbitrary in-image text is not built - stated honestly, see Roadmap)
+- ✅ Language coverage router and Hindi/Hinglish rules - detects Devanagari and other scripts, romanized Hindi and code-mixed text; marks the English-trained model as outside its validated coverage (banner + playbook step); applies transparent localized credential/payment/verification-avoidance rules that reuse the English rules' finding titles. Keyword heuristics, not a multilingual model, and not accuracy evidence
+- ✅ Quishing and image-only phishing detection - QR codes in PNG/JPEG/GIF/BMP/WEBP images and on the first two pages of PDFs are decoded and scored like any link; text inside the same images and pages is read by OCR (RapidOCR/ONNX, models shipped inside the wheel, English/Latin script only, at most 3 images/pages and 12 s per message) and analysed like body text - rules, language check, link extraction and the classifier - while the stored body stays untouched. Image-only messages are flagged. OCR is an aid, not proof; Indic scripts are not read
 - ✅ Conversation-aware BEC detection - flags mid-thread payment/UPI-ID changes, reply-to domain swaps, and thread-history anomalies that a single-email scan can't see
 
 **Authentication & Origin**
@@ -317,6 +327,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Trust-boundary separation: receiver-attested "earliest reliable node" kept distinct from the header-reported chain
 - ✅ Every relay hop explicitly labeled "receiver trust not established" unless attested
 - ✅ Network-behavior-over-time tracking - compares a sender's first/last-seen relay and reputation history across cases in the current session, not just a single external lookup
+- ✅ Cross-session indicator ledger - a keyed-HMAC-hashed record of indicators (sender, link, reply address, attachment hash, relay IP) with first/last seen and counts, so an analysis shows what appeared in earlier analyses across sessions. Stores no case content and no raw values, excludes demo samples, expires after a retention window (default 90 days), and never raises triage by itself. On Windows set `LEDGER_KEY` rather than relying on file permissions
 
 **Infrastructure & Reputation**
 - ✅ Relay geolocation (IP/ISP/ASN, source + timestamp recorded per lookup)
@@ -326,6 +337,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ URL structural analysis + PhishTank matching
 - ✅ VirusTotal attachment-hash reputation + opt-in sandbox upload (parallelized lookups)
 - ✅ Static attachment inspection - executable signatures, PDF action markers, Office macros, encryption markers, plus a YARA-style declarative rule set (HTML smuggling, macro auto-exec, RTF exploit objects, .lnk shortcuts, PDF embedded files, encoded script droppers, double extensions, RTL-override filenames, disk images) and archive checks for zip-slip path traversal, zip-bomb expansion ratios and nested archives - every finding carries a rule ID; nothing is executed or decompressed
+- ✅ Static landing-page inspection (analyst-triggered) - fetches one linked page and describes it: title, forms, password fields, cross-domain form posts, meta refresh, frames, external scripts, brand-vs-domain cues, a structure hash. No JavaScript, cookies or rendering. SSRF-hardened: only public web hosts on ports 80/443/8080/8443; DNS resolved once and the connection pinned to the validated address; every redirect re-validated; 512 KB and 8 s hard caps enforced during the read (a slow-drip server cannot hold a worker); TLS verified, never bypassed; only URLs from that case are accepted; explicit confirmation because the destination sees the server's IP. Not a rendered screenshot
 
 **Attribution & Evidence**
 - ✅ Attribution Confidence Engine - transparent 0-100 weighted score, hard-capped low when origin is undetermined; validated against a 17-scenario labeled matrix (17/17 in the expected band, 13/13 ordering checks hold - `benchmarks/attribution_validation_matrix.md`). Validates ordering and banding of the hand-set weights, not a calibrated probability
@@ -345,6 +357,9 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 **Real-Time Ingestion**
 - ✅ Gmail Pub/Sub server-side push ingestion - live-verified on a real account
 - ✅ "Gmail Guard" browser extension - live-verified end-to-end against real Gmail, in-page risk banner
+- ✅ Pre-delivery gateway (opt-in via `GATEWAY_SMTP_PORT`) - an SMTP endpoint that analyses each message before any mailbox, delivers clean mail with X-PRAHARI-* headers, and holds urgent or score-60+ mail in a quarantine with a hold/release/discard workflow logged in the audit chain. Analysis exceptions hold the message; capacity and storage failures answer SMTP 451 so nothing is delivered and the sender retries. Proven end to end over real SMTP in the test suite and in the running app. A gateway model for an institution's own mail flow, not a Gmail integration
+- ✅ Click-time link warning in Gmail Guard - once a high-risk verdict is installed, ordinary link clicks in the message body show a confirmation dialog with the real destination (Google redirect wrappers unwrapped; dangerous schemes cannot be opened). Best effort, not a security boundary: it does not cover clicks before the scan finishes, the context-menu "open in new tab", or Gmail's own scripts
+- ✅ Gmail label/quarantine actions (opt-in via `GMAIL_ACTION_MODE`: off / dry-run / label / quarantine) - reversible only (adds labels, at most removes from the inbox; never deletes, trashes or sends), failures recorded not raised, every outcome in the audit chain. Unit-tested against a fake Gmail service; NOT verified against a live Gmail account, and needs the gmail.modify scope
 
 **Reporting & SOC Integration**
 - ✅ PDF (with real Unicode/Devanagari text shaping - Hindi renders correctly, not as `?`) / JSON / CSV / CEF exports - the CSV is sectioned (indicators, findings, URLs, authentication, attachments) with spreadsheet-formula-injection neutralised, and JSON exports carry a schema version
@@ -356,7 +371,9 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Full-text case search across subject, sender, recipient, findings and indicators - not just a client-side filter on the summary list
 - ✅ Analyst notes per case, with a live character-count hint on the verification note field
 - ✅ Evidence-driven next-step playbook - every suggested action (verify out-of-band, block link destinations, quarantine attachments, preserve evidence, report to CERT-In / the 1930 cyber-fraud helpline) appears only when the case contains the evidence that triggers it, and states why. Suggestions, not automated actions
-- ✅ Case ownership / assignment label for solo/small-team triage (not access control - see Q&A Cheat Sheet)
+- ✅ Case ownership / assignment label for triage (a label, not access control - see the role-based items below)
+- ✅ Role-based access control (opt-in via `ROLE_TOKENS`) - per-person bearer tokens with viewer / analyst / admin roles enforced on every API route (unknown writes default to admin-only; fails closed if configured but no valid entry; only the exact self-authenticated Gmail routes are exempt); authenticated people share one workspace so a reviewer can open an analyst's case; per-person rate limits; sign-in screen in the UI
+- ✅ Actor-stamped audit chain and four-eyes rule - every hash-chained event records the authenticated actor (or a named system component such as the gateway or Gmail push) and the chain still verifies; the person who analyzed a case cannot approve it (a hold is always allowed; `FOUR_EYES=0` for single-person demos). Authenticated app role, not legal identity
 
 **Security Hardening**
 - ✅ Content-Security-Policy, Strict-Transport-Security and Permissions-Policy headers - CSP live-verified in a real browser against the deployed app's actual map tiles, not just theoretically correct
@@ -367,16 +384,16 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 645 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
-- ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 14 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
+- ✅ 769 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
+- ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 32 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, non-bugs including a wrongly claimed "no Python 3.12 torch wheel") and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
 
 *Grounded in 5 papers reviewed Sept 2026: SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 Enterprise Phishing Networks, BEC Systematic Review (Computers & Security 2025). Full citations on Slide 6.*
 
 **Highest-priority next additions**
-- 🔜 OCR for arbitrary in-image phishing text - QR-code decoding inside image and PDF attachments is already built (see checklist above); reading free text inside images is the remaining gap
-- 🔜 Selective landing-page inspection for unresolved links - isolated worker, screenshot + credential-form detection, no credentials used
+- 🔜 OCR for Indic scripts (Hindi and regional languages) - today's OCR reads English/Latin script only
+- 🔜 Rendered-page screenshots and visual brand matching for landing pages - today's inspection is static and script-free
 - 🔜 Learned multimodal fusion model - replacing today's fixed rule-based score caps
 
 **Foundation hardening**
@@ -384,14 +401,13 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - 🔜 Independent, near-duplicate-safe evaluation suite - our own training script already flags that exact-dedup alone doesn't catch template-level near-duplicates; next step is campaign/source-held-out benchmarks
 - 🔜 Calibrated probability scores (Brier score, reliability diagrams) - today's states are distinct, but the score itself stays uncalibrated
 - 🔜 Evidence-linked explanations - stable finding IDs that reference exact source location
-- 🔜 Persistent, cross-session network-behavior history - today's version compares within the current session's stored cases only
 
 **Additional roadmap items**
 - 🔜 India-specific curated brand/UPI reference set for impersonation detection (the similarity-check mechanism already exists; the curated list doesn't ship by default)
-- 🔜 Multilingual / code-mixed phishing *detection* (Hindi + regional languages) - export rendering already handles Devanagari correctly; the ML classifier itself is still English-trained
+- 🔜 A trained multilingual / code-mixed phishing classifier (Hindi + regional languages) - today: a language-coverage router plus localized keyword rules, and the classifier itself is still English-trained
 - 🔜 Broader adversarial-robustness testing (paraphrase attacks - beyond today's truncation-shift, homoglyph and zero-width coverage)
-- 🔜 Async job pipeline for slow enrichment (OCR, page-fetch) with retries and resilience
-- 🔜 Role-based access control for multi-analyst teams
+- 🔜 Async job pipeline for slow enrichment (page-fetch, OCR) with retries and resilience
+- 🔜 SSO/OIDC identity for roles (today: per-person bearer tokens) and live-account verification of the Gmail label/quarantine actions
 - 🔜 Analyst feedback capture + drift monitoring + controlled retraining
 
 **Longer-horizon (only if justified by real constraints)**
@@ -412,6 +428,10 @@ Keep these in speaker notes or Q&A answers.
 - DPDP masking is best-effort protection, not certified DLP.
 - VirusTotal/AbuseIPDB are optional enrichments; the core pipeline still works without them.
 - Case ownership/assignment is a triage label, not real access control.
+- The pre-delivery gateway is a gateway model for an institution's own mail flow, not an interception of Gmail; Gmail label/quarantine actions are verified against a fake service only.
+- Click-time warning is best effort, not a security boundary. OCR reads English/Latin script only and is an aid, not proof. Landing-page inspection is static (no JavaScript, no screenshot).
+- Role auth is per-person bearer tokens, not SSO. The ledger and OCR are on by default (switch off with `LEDGER_ENABLED=0` / `OCR_ENABLED=0`); roles, the gateway and Gmail actions are off unless configured.
+- The gateway holds only urgent or score-60+ messages: a review-level phish (for example a Hinglish credential lure scoring 20) is delivered with an `X-PRAHARI-Triage: review` header, not held.
 
 ---
 

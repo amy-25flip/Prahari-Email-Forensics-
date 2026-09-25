@@ -9,6 +9,10 @@ FROM python:3.12-slim
 WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir -r requirements.txt
+# RapidOCR declares a hard dependency on the full `opencv-python`, which would clash with the `opencv-python-headless`
+# already pinned above (both provide the same `cv2` module). Its other dependencies are pinned in requirements.txt, so
+# install it without dependency resolution; it only needs a cv2 module, which the headless build provides.
+RUN pip install --no-cache-dir --no-deps rapidocr==3.9.2
 # Ship the TEAM'S OWN fine-tuned checkpoint (99.32% held-out test accuracy --
 # see training_report.json alongside the weights), not a generic pretrained
 # public model. An earlier version of this Dockerfile instead downloaded

@@ -17,6 +17,8 @@ import prompt_injection
 import adversarial
 import pii
 import qr_detection
+import language_support
+import ocr
 import routing
 import finding_ids
 from authentication import authenticate
@@ -218,10 +220,17 @@ def analyze(raw, source='upload', live=False, context=None):
     if not msg.get('From'):
         raise ValueError('Include at least a From header in a raw email.')
     attachments, texts, html_links, html_sources, qr_urls = [], [], [], [], []
+    image_parts = 0
+    ocr_items = []
     for i, part in enumerate(msg.walk()):
         if i > 100: raise ValueError('Email has too many MIME parts (maximum 100).')
         if part.is_multipart(): continue
         payload = part.get_payload(decode=True) or b''
+        if part.get_content_maintype() == 'image':
+            image_parts += 1
+            if len(ocr_items) < 6: ocr_items.append(('image', payload))
+        elif part.get_content_type() == 'application/pdf' and len(ocr_items) < 6:
+            ocr_items.append(('pdf', payload))
         if part.get_filename() or part.get_content_disposition() == 'attachment':
             name = str(part.get_filename() or 'unnamed')
             content_type = part.get_content_type()
@@ -244,12 +253,17 @@ def analyze(raw, source='upload', live=False, context=None):
                 html_sources.append(decoded)
             else: texts.append(decoded)
     body = '\n'.join(texts)[:100000]
+    # Text inside images / rendered PDF pages (bounded, English/Latin script). It feeds the same rules, language check,
+    # link extraction and classifier as body text, but the stored body stays exactly what the message contained.
+    ocr_blocks = ocr.extract_texts(ocr_items) if ocr_items else []
+    ocr_text = '\n'.join(ocr_blocks)[:ocr.MAX_TEXT_CHARS]
+    analysis_body = body + ('\n' + ocr_text if ocr_text else '')
     # QR-decoded URLs go FIRST: they're a stronger structural signal (a link
     # deliberately hidden inside an image, not just written in the body) and
     # must not be silently starved by the 50-URL cap below on an email with
     # many ordinary body/HTML links.
     candidates = ([(u, '') for u in qr_urls] + html_links
-                  + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', body, re.I)])
+                  + [(x.rstrip('.,;)'), '') for x in re.findall(r'https?://[^\s<>"\']+', analysis_body, re.I)])
     urls = {}
     for candidate, shown in candidates:
         scanned = scan_url(candidate, shown)
@@ -286,13 +300,28 @@ def analyze(raw, source='upload', live=False, context=None):
     for title, pattern in [('Credential pressure', r'(verify.{0,40}(account|password)|account.{0,30}suspend)'),
                            ('Payment diversion', r'(bank account.{0,25}chang|transfer the payment|updated bank details)'),
                            ('Verification avoidance', r'(do not (call|contact)|bypass.{0,25}approval|keep this confidential)')]:
-        match = re.search(pattern, body, re.I | re.S)
-        if match: flag('language', title, match[0], 10)
+        match = re.search(pattern, analysis_body, re.I | re.S)
+        if match: flag('language', title, match[0] + (' (read from an image by OCR)' if ocr_text and match[0] in ocr_text and match[0] not in body else ''), 10)
+    language = language_support.assess(msg.get('Subject'), analysis_body)
+    already = {f['title'] for f in findings}
+    for localized in language_support.rules(str(msg.get('Subject') or '') + '\n' + analysis_body):
+        if localized['title'] not in already:
+            flag(localized['group'], localized['title'], localized['detail'], localized['points'])
+            already.add(localized['title'])
+    if image_parts and len(re.sub(r'\s+', '', body)) < 40:
+        flag('attachments', 'Image-only message',
+             ('The message has almost no readable text and carries image content. Text inside the image was read by OCR and analysed '
+              '(English/Latin script only; OCR can miss or misread text) - still review the image manually.') if ocr_text else
+             ('The message has almost no readable text and carries image content. Text inside images could not be read here '
+              '(OCR unavailable or found no text; QR codes are decoded) - review the image manually.'), 10)
+    if ocr_text:
+        flag('attachments', 'Text read from image (OCR)',
+             f'{len(ocr_text)} characters read from {len(ocr_blocks)} image/page(s) and analysed like body text. OCR is an aid, not proof.', 0)
     # str(None) would literally embed the 4-character string "None" into
     # classifier input and the stored subject field for a genuinely
     # subject-less email -- normalize a truly absent header to '', the same
     # as an explicitly blank one, rather than a surprise literal word.
-    classifier_text = str(msg.get('Subject') or '') + '\n' + body
+    classifier_text = str(msg.get('Subject') or '') + '\n' + analysis_body
     prediction = ml.classify(classifier_text)
     prediction['verdict'] = interpret_model(prediction, auth)
     if high_model_signal(prediction):
@@ -391,7 +420,8 @@ def analyze(raw, source='upload', live=False, context=None):
             'conflicts': detect_conflicts(findings, auth, prediction, list(urls.values())),
             'findings': findings, 'ml': prediction, 'authentication': auth, 'urls': list(urls.values()),
             'attachments': attachments, 'hops': hops, 'indicators': indicators, 'geo': geo,
-            'prompt_injection': manipulation, 'adversarial': adversarial_delta, 'pii': pii.scan(classifier_text),
+            'language': language, 'ocr': ({'chars': len(ocr_text), 'blocks': len(ocr_blocks), 'text': ocr_text[:2000], 'engine': ocr.status()} if ocr_items else None),
+        'prompt_injection': manipulation, 'adversarial': adversarial_delta, 'pii': pii.scan(classifier_text),
             'payment_signals': payment_signals,
             'headers': [{'name': k, 'value': str(v)[:4000]} for k, v in list(msg.items())[:100]],
             'origin': 'Unverified', 'coverage': {'completed': 4 + int(auth['dkim']['status'] in ('pass', 'fail')), 'total': 8},

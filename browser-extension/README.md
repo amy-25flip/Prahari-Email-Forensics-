@@ -64,3 +64,7 @@ urgent triage, account paths and safe text rendering. These do not replace testi
   may call AbuseIPDB/VirusTotal/ipwho.is/IANA with the email's public IPs and sender domain (never the body
   or attachments beyond attachment hashes) if those integrations are configured. Be mindful of this before
   pointing the extension at a shared/production backend with real mail.
+
+
+## Click-time link warning
+Once a message is rated high-risk (urgent triage or score 60+), ordinary clicks (and middle-clicks) on links inside the message body show a confirmation dialog with the real destination (Google redirect wrappers are unwrapped; `javascript:`/`data:`/`vbscript:` links cannot be opened from the dialog). Best effort, NOT a security boundary: it does not cover clicks made before the scan finishes, the browser's context-menu "open in new tab", or navigation triggered by Gmail's own scripts. Logic lives in `click-guard.js` and is covered by `test-extension.cjs`.

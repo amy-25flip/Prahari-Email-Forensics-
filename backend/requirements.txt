@@ -19,3 +19,10 @@ numpy==2.5.2
 uharfbuzz==0.56.2
 pypdfium2==5.13.0
 setuptools==83.0.0
+aiosmtpd==1.4.6
+onnxruntime==1.30.0
+pyclipper==1.4.0
+shapely==2.1.2
+omegaconf==2.3.1
+colorlog==6.12.0
+Pillow==12.3.0

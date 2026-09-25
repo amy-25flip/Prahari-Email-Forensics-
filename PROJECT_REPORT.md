@@ -21,8 +21,9 @@ Pipeline: parse headers/body/attachments -> SPF/DKIM/DMARC/ARC -> BERT + AI-mani
 - **AI-manipulation detection:** hidden prompt-injection content (CSS-hidden text, zero-width characters, HTML comments) and instruction-like phrasing, also matched against a homoglyph-normalized copy so Cyrillic look-alikes do not evade it; separate raw-vs-normalized model-probability delta flags evasion attempts.
 - **Authentication-aware fusion:** a scary-looking message from a DKIM/DMARC-aligned sender is not escalated on content alone.
 - **Rules:** credential pressure, payment diversion, verification avoidance, executive-payment cues; deceptive-domain, display-name and link-mismatch checks.
-- **Quishing:** QR codes in image attachments and on the first two pages of PDFs are decoded (OpenCV; PDF pages rasterized with pypdfium2 at bounded resolution, tolerant fallback decoders) and scored as ordinary links.
+- **Quishing and image-only phishing:** QR codes in image attachments and on the first two PDF pages are decoded (OpenCV; PDF pages rasterized with pypdfium2 at bounded resolution, tolerant fallback decoders). Text in the same images and pages is read by OCR (RapidOCR/ONNX, English/Latin script only, models shipped in the wheel; at most 3 images/pages and 12 s per message) and analysed like body text - rules, language check, link extraction and the classifier - while the stored body is unchanged. OCR is an aid, not proof.
 - **Conversation-aware BEC:** mid-thread payment/UPI-ID changes, reply-to domain swaps and thread anomalies, matched by Message-ID/References with a conservative fallback.
+- **Language coverage:** script/language detection (Devanagari and other scripts, Hinglish, code-mixed); when text is outside the English model's validated coverage the UI and playbook say so, and transparent Hindi/Hinglish rules for credential pressure, payment diversion and verification avoidance apply. Keyword heuristics, not a multilingual model.
 - **Attachments:** hashes, executable/PDF-action/macro/encryption markers, a YARA-style declarative rule set (HTML smuggling, macro auto-exec, RTF objects, `.lnk`, encoded droppers, double extensions, RTL-override names) and archive checks for zip-slip, zip-bomb ratios and nesting - static only, nothing executed.
 - **URLs:** structural checks, PhishTank feed matching, `javascript:`/`data:`/`vbscript:` flagged at full severity, `file:`/`search-ms:`/`ms-*` handler schemes at review level.
 
@@ -34,19 +35,26 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 - **Campaign correlation:** shared reply-address/URL/attachment-hash/thread indicators plus a hybrid body-similarity stack (character-shingle Jaccard, TF-IDF cosine, SimHash). Strong agreement can group cases; moderate agreement only draws a context-only link. Thresholds are heuristic, tuned on a small fixture set.
 - **Cross-case evidence graph:** typed nodes (case, sender, domain, relay IP, URL, attachment hash, reply-to, thread) with per-link `strong`/`context_only` confidence.
 - **Analyst guidance and exchange:** a per-case, evidence-triggered next-step playbook; STIX 2.1 export of adverse indicators only (TLP:AMBER, no message content; validated with the reference stix2 library, not yet tested against a live MISP); a one-click electronic-evidence support pack (manifest, hashes, custody trail, draft declaration for a human signer - support material, not a certificate).
+- **Cross-session memory:** a keyed-HMAC-hashed indicator ledger (no raw values, no case content, demo samples excluded, 90-day default retention) surfaces indicators seen in earlier analyses across sessions; informational only.
+- **Landing pages:** analyst-triggered static inspection of one linked page (forms, password fields, cross-domain posts, brand cues) with SSRF hardening - public hosts only, DNS pinned, redirects re-validated, size and time caps enforced during the read, TLS verified, no JavaScript. Not a rendered screenshot.
 - **Custody:** SHA-256 hash-chained event log with an independent verify; optional OpenTimestamps anchoring of the chain head into Bitcoin (a pending proof is created immediately; confirmation takes hours; a real demo proof is confirmed in Bitcoin block 968372, independently verified against a public block explorer); supports, but does not issue, a BSA 2023 s.63 certificate.
+
+## 5b. Alerts before interaction, roles and audit
+- **Pre-delivery gateway (opt-in):** an SMTP endpoint (aiosmtpd) analyses each message before any mailbox, delivers clean mail with X-PRAHARI headers, and holds urgent or score-60+ mail in a quarantine with hold/release/discard logged in the audit chain. Analysis exceptions hold the message; capacity/storage failures answer SMTP 451 so the sender retries. Proven over real SMTP in tests and in the running app. It is a gateway model for an institution's own mail flow, not a Gmail interception.
+- **Inside Gmail:** the extension's banner, plus a click-time confirmation dialog once a high-risk verdict is installed (best effort, not a security boundary). Optional Gmail label/quarantine actions (reversible; never delete/trash/send; needs gmail.modify) are unit-tested against a fake Gmail service only and are NOT verified live.
+- **Roles (opt-in, `ROLE_TOKENS`):** per-person bearer tokens with viewer/analyst/admin roles enforced on every route (unknown writes default to admin), shared authenticated workspace, per-person rate limits, actor-stamped audit events (chain still verifies), and a four-eyes rule. Application-level access control, not SSO or legal identity.
 
 ## 6. Privacy, security and engineering
 - DPDP-conscious exports: Aadhaar (Verhoeff-validated), PAN, UPI and Indian mobile numbers masked; optional email masking; per-export masking summary (counts only); redacted mode. Best-effort, not certified DLP.
 - Hardening: CSP and Permissions-Policy on every response, HSTS when HTTPS is asserted, spoof-resistant proxy trust for rate limiting (allowlisted IPs/CIDRs, multi-hop chain verification), per-session and per-peer limits, decompression/pixel-count bounds, CSV formula-injection neutralisation.
-- Supply chain: CycloneDX SBOMs (backend 85 components, frontend 59); `pip-audit` over a clean install mirroring the Docker image and `npm audit`: 0 known vulnerabilities (torch's CPU build cannot be scanned by pip-audit).
+- Supply chain: CycloneDX SBOMs (backend 96 components, frontend 59); `pip-audit` over a clean install mirroring the Docker image (96 packages) and `npm audit`: 0 known vulnerabilities (torch's CPU build cannot be scanned by pip-audit).
 - Review process: independent review passes (Codex/GPT, Antigravity) with every finding logged, including non-bugs and unfixed limits, in `security/REVIEW_REGISTER.md`.
 - Accessibility: automated axe-core WCAG 2.1 A/AA audit clean across 12 UI states, contrast verified on 1,226 text elements, no horizontal overflow at 375 px (`security/ACCESSIBILITY_AUDIT.md`); not a screen-reader test.
 
 ## 7. Evaluation (measured)
 | Metric | Result | Source |
 |---|---|---|
-| Backend automated tests | 645 passing | `pytest backend` |
+| Backend automated tests | 769 passing | `pytest backend` |
 | ML accuracy / false-positive rate | 99.32% / 0.49% on 33,527 held-out emails | `training_report.json` |
 | Truncation-evasion detection | 0/100 -> 95/100 | team attack script re-run |
 | Local analysis latency (BERT loaded, no enrichment) | ~50-65 ms median, p95 < 80 ms | `benchmarks/` (2 x 100 runs) |
@@ -56,10 +64,12 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 | Frontend | lint clean (oxlint), bundle 542 kB unsplit -> vendor chunks + 67 kB app chunk | build output |
 
 ## 8. Limitations (stated, not hidden)
-Infrastructure location is not attacker location. 99.32% is a held-out figure, not a real-world guarantee, and no campaign-held-out benchmark exists yet. The classifier is English-trained. Gmail Guard depends on Gmail's private page markup. Case assignment is a label, not access control. No OCR of free text inside images. Network history is session-scoped. Campaign thresholds are heuristic. The Docker image has not been built on this machine (no Docker); dependency resolution for its target platform was verified separately.
+Infrastructure location is not attacker location. 99.32% is a held-out figure, not a real-world guarantee, and no campaign-held-out benchmark exists yet. The classifier is English-trained. Gmail Guard depends on Gmail's private page markup. Case assignment is a label, not access control. OCR reads English/Latin script only. Roles are per-person tokens, not SSO. Gmail label/quarantine actions are verified against a fake service only, and the click-time warning is best effort. Campaign thresholds are heuristic. The Docker image has not been built on this machine (no Docker); dependency resolution for its target platform was verified separately.
+
+Configuration of the optional features (all off unless set, except the ledger and OCR): `ROLE_TOKENS`, `FOUR_EYES`, `GATEWAY_SMTP_PORT`/`GATEWAY_SMTP_HOST`/`GATEWAY_HOLD_SCORE`, `GMAIL_ACTION_MODE`/`GMAIL_ACTION_MIN_SCORE`, `LEDGER_ENABLED`/`LEDGER_KEY`/`LEDGER_RETENTION_DAYS`, `OCR_ENABLED`, `LANDING_INSPECT_ENABLED`.
 
 ## 9. Roadmap
-OCR for in-image text; selective landing-page inspection; calibrated probabilities (Brier/reliability); learned multimodal fusion; campaign/near-duplicate-held-out evaluation; multilingual and code-mixed detection; RBAC; persistent cross-session indicator history; analyst-feedback loop and drift monitoring.
+OCR for Indic scripts; rendered landing-page screenshots and visual brand matching; calibrated probabilities (Brier/reliability); learned multimodal fusion; campaign/near-duplicate-held-out evaluation; multilingual and code-mixed detection; RBAC; persistent cross-session indicator history; analyst-feedback loop and drift monitoring.
 
 ## 10. References
 RFC 7208 (SPF), RFC 6376 (DKIM), RFC 9989 (DMARC), RFC 8617 (ARC), RFC 5322; Devlin et al., BERT (2019); OpenTimestamps; BSA 2023 s.63; FBI IC3 reports; CERT-In/PIB 2025 incident data; SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 enterprise phishing networks, BEC systematic review (Computers & Security 2025) - full citations in `PPT_DATA_WINNING.md`.

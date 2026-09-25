@@ -137,7 +137,18 @@ function el(tag, className, text) {
   return node
 }
 
+const guards = new WeakMap()
+
+function updateClickGuard(container, result) {
+  guards.get(container)?.remove()
+  guards.delete(container)
+  if (result && globalThis.GmailGuardClickGuard?.shouldGuard(result)) {
+    guards.set(container, globalThis.GmailGuardClickGuard.install(container, result, document, window))
+  }
+}
+
 function render(container, key, result, error) {
+  updateClickGuard(container, error ? null : result)
   const stamp = JSON.stringify([key, result?.id, error])
   const previous = container.querySelector(':scope > .etd-banner')
   if (previous?.dataset.stamp === stamp) return

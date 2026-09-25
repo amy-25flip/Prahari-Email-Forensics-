@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import api from './api'
-import { ShieldCheck, ScanLine, Network, Files, Upload, ArrowUpRight, ArrowLeft, Download, Search, Trash2, X, LoaderCircle, Fingerprint, Mail, Globe2, Link2, AlertTriangle, ChevronRight, FileText } from 'lucide-react'
+import api, { roleToken } from './api'
+import { ShieldCheck, ShieldAlert, ScanLine, Network, Files, Upload, ArrowUpRight, ArrowLeft, Download, Search, Trash2, X, LoaderCircle, Fingerprint, Mail, Globe2, Link2, AlertTriangle, ChevronRight, FileText } from 'lucide-react'
+import AuthGate from './AuthGate'
+import LanguageNotice from './LanguageNotice'
+import LandingInspect from './LandingInspect'
+import Quarantine from './Quarantine'
 import RelayMap from './RelayMap'
 import Authentication from './Authentication'
 import './index.css'
@@ -32,7 +36,7 @@ function Badge({ children, color = 'neutral' }) { return <span className={`badge
 function Empty({ icon: Icon = Files, children }) { return <div className="empty"><Icon size={28}/><p>{children}</p></div> }
 function Section({ title, meta, children }) { return <section className="section"><div className="section-head"><h3>{title}</h3>{meta}</div>{children}</section> }
 
-export default function App() {
+function Workspace({ who, onSignOut }) {
   const [view, setView] = useState('analyze')
   const [redacted, setRedacted] = useState(false)
   const [maskEmails, setMaskEmails] = useState(false)
@@ -165,13 +169,13 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setView('analyze') }}><span className="brand-icon"><ShieldCheck size={23}/></span><span>AI-Powered Email<br/>Threat Detection</span></a>
       <div className="workspace-label">WORKSPACE <span>01</span></div>
-      <nav>{[['analyze', ScanLine, 'Investigate'], ['cases', Files, 'Case history'], ['gmail', Mail, 'Gmail alerts'], ['graph', Network, 'Connections']].map(([key, Icon, title]) => <button key={key} className={view === key ? 'nav-item active' : 'nav-item'} onClick={() => setView(key)}><Icon size={18}/><span>{title}</span>{key === 'cases' && <small>{cases.length}</small>}</button>)}</nav>
-      <div className="sidebar-bottom"><span className="session-dot"/> Private session<small>{health?.retention_hours ?? 24}-hour retention · {cases.length}/30 cases</small></div>
+      <nav>{[['analyze', ScanLine, 'Investigate'], ['cases', Files, 'Case history'], ['gmail', Mail, 'Gmail alerts'], ['quarantine', ShieldAlert, 'Quarantine'], ['graph', Network, 'Connections']].map(([key, Icon, title]) => <button key={key} className={view === key ? 'nav-item active' : 'nav-item'} onClick={() => setView(key)}><Icon size={18}/><span>{title}</span>{key === 'cases' && <small>{cases.length}</small>}</button>)}</nav>
+      <div className="sidebar-bottom"><span className="session-dot"/> {who ? `${who.actor} (${who.role})` : 'Private session'}{who && <button className="secondary" onClick={onSignOut} style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10 }}>Sign out</button>}<small>{health?.retention_hours ?? 24}-hour retention · {cases.length}/30 cases</small></div>
     </aside>
     <main>
-      <header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14}/><strong>{view === 'analyze' ? 'Investigate' : view === 'cases' ? 'Case history' : view === 'gmail' ? 'Gmail alerts' : 'Connections'}</strong></div><span className="model-state"><i className={health?.model === 'ready' ? 'online' : ''}/>{health?.model === 'ready' ? 'BERT ready' : health?.model === 'loading' ? 'BERT loading' : health ? 'AI unavailable' : 'API disconnected'}</span></header>
+      <header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14}/><strong>{view === 'analyze' ? 'Investigate' : view === 'cases' ? 'Case history' : view === 'gmail' ? 'Gmail alerts' : view === 'quarantine' ? 'Quarantine' : 'Connections'}</strong></div><span className="model-state"><i className={health?.model === 'ready' ? 'online' : ''}/>{health?.model === 'ready' ? 'BERT ready' : health?.model === 'loading' ? 'BERT loading' : health ? 'AI unavailable' : 'API disconnected'}</span></header>
       <div className="content">
-        <div className="page-heading"><div><div className="eyebrow">FORENSIC WORKSPACE</div><h1>{view === 'analyze' ? 'Email investigation' : view === 'cases' ? 'Case history' : view === 'gmail' ? 'Gmail alerts' : 'Campaign connections'}</h1></div></div>
+        <div className="page-heading"><div><div className="eyebrow">FORENSIC WORKSPACE</div><h1>{view === 'analyze' ? 'Email investigation' : view === 'cases' ? 'Case history' : view === 'gmail' ? 'Gmail alerts' : view === 'quarantine' ? 'Quarantine' : 'Campaign connections'}</h1></div></div>
         {error && <div className="message error" role="alert"><AlertTriangle size={18}/><span>{error}</span><button title="Dismiss error" aria-label="Dismiss error" onClick={() => setError('')}><X size={16}/></button></div>}
         {notice && <div className="message">{notice}</div>}
         {view === 'analyze' && !result && <div className="hero"><p>Traces the relay chain, scores authentication and attribution, and flags what the evidence actually supports.</p></div>}
@@ -194,16 +198,17 @@ export default function App() {
             {tab === 'evidence' && <PromptInjection value={result.prompt_injection}/>}
             {tab === 'evidence' && <ConversationBEC value={result.assessment?.conversation}/>}
             {tab === 'evidence' && <NetworkHistory value={result.assessment?.network_history} openCase={openCase}/>}
-            {tab === 'evidence' && <><Playbook value={result.assessment?.playbook}/><AttributionConfidence value={result.assessment?.attribution}/><PSAssessment value={result.assessment}/><CaseActivity key={`activity-${result.id}`} caseId={result.id}/><ReviewDecision key={result.id} caseId={result.id}/></>}
+            {tab === 'evidence' && <><LanguageNotice value={result.language}/><Playbook value={result.assessment?.playbook}/><AttributionConfidence value={result.assessment?.attribution}/><PSAssessment value={result.assessment}/><CaseActivity key={`activity-${result.id}`} caseId={result.id}/><ReviewDecision key={result.id} caseId={result.id}/></>}
             {tab === 'evidence' && <div className="evidence-layout"><Section title="Detection evidence" meta={<Badge>{result.findings.length} findings</Badge>}>{result.findings.length ? result.findings.map((f, i) => <div className="finding" key={i}><AlertTriangle size={17}/><div><strong>{f.title}</strong><p>{f.detail}</p><small>{f.group}</small></div><span className="points">+{f.points}</span></div>) : <Empty icon={ShieldCheck}>No configured detection rules triggered. This is not proof that the email is safe.</Empty>}<div className="group-caps">Group totals after caps: {Object.entries(result.groups).map(([key, value]) => `${key} ${value}`).join(' · ')}</div></Section><div><Authentication values={result.authentication}/><DomainIntelligence value={result.domain_intelligence}/><Section title="Evidence integrity"><CheckpointTools/><div className="hash mono">{result.sha256}</div><button className="secondary" onClick={verify}><Fingerprint size={16}/> Verify stored evidence</button>{verification && <div className={`verification ${verification.valid ? 'good' : 'danger'}`}><strong>{verification.valid ? 'Integrity checks passed' : 'Integrity check failed'}</strong><p>{verification.detail}</p></div>}</Section></div></div>}
             {tab === 'relay' && <><RelayMap result={result}/><Section title="Header-reported relay sequence">{result.hops.length ? result.hops.map(h => <div className="hop" key={h.index}><span>{String(h.index).padStart(2, '0')}</span><div><strong className="mono">{h.ips.join(' / ') || 'No IP in this header'}</strong><p className="mono">{h.raw}</p><Badge color="warn">{h.trust}</Badge></div></div>) : <Empty icon={Globe2}>No Received headers supplied.</Empty>}</Section></>}
-            {tab === 'urls' && <Section title="Extracted links" meta={<Badge>Local reputation matching</Badge>}>{result.urls.length ? result.urls.map((u, i) => <div className="url-row" key={i}><Link2 size={18}/><div><strong className="mono">{u.url}</strong><p>{u.domain} · {u.protocol} · {u.length} characters</p><div className="tags">{u.reasons.length ? u.reasons.map(r => <Badge key={r} color="warn">{r}</Badge>) : <Badge>No structural flags</Badge>}</div><UrlReputation value={u.reputation}/></div><span className={`url-score ${tone(u.score)}`} title="URL structural score">{u.score}</span></div>) : <Empty icon={Link2}>No HTTP or HTTPS links found.</Empty>}</Section>}
-            {tab === 'source' && <><Section title="Attachment inventory">{result.attachments.length ? result.attachments.map((a, i) => <div className="attachment" key={i}><FileText size={20}/><div><strong>{a.name}</strong><p>{a.type} · {a.size} bytes</p><small className="mono">{a.sha256}</small>{a.size > 0 && <SandboxSubmit key={`${result.id}-${a.sha256}`} caseId={result.id} sha256={a.sha256}/>}</div><Badge color={a.warning ? 'warn' : 'neutral'}>{a.warning ? 'Review extension' : 'Not malware-scanned'}</Badge></div>) : <Empty icon={FileText}>No attachments found.</Empty>}</Section><Section title="Decoded message"><pre>{result.body || 'No text body found.'}</pre></Section><Section title="Email headers">{result.headers.map((h, i) => <div className="header-row" key={i}><strong>{h.name}</strong><span className="mono">{h.value}</span></div>)}</Section></>}
+            {tab === 'urls' && <Section title="Extracted links" meta={<Badge>Local reputation matching</Badge>}>{result.urls.length ? result.urls.map((u, i) => <div className="url-row" key={i}><Link2 size={18}/><div><strong className="mono">{u.url}</strong><p>{u.domain} · {u.protocol} · {u.length} characters</p><div className="tags">{u.reasons.length ? u.reasons.map(r => <Badge key={r} color="warn">{r}</Badge>) : <Badge>No structural flags</Badge>}</div><UrlReputation value={u.reputation}/><LandingInspect key={`${result.id}-${i}`} caseId={result.id} url={u.url}/></div><span className={`url-score ${tone(u.score)}`} title="URL structural score">{u.score}</span></div>) : <Empty icon={Link2}>No HTTP or HTTPS links found.</Empty>}</Section>}
+            {tab === 'source' && <><Section title="Attachment inventory">{result.attachments.length ? result.attachments.map((a, i) => <div className="attachment" key={i}><FileText size={20}/><div><strong>{a.name}</strong><p>{a.type} · {a.size} bytes</p><small className="mono">{a.sha256}</small>{a.size > 0 && <SandboxSubmit key={`${result.id}-${a.sha256}`} caseId={result.id} sha256={a.sha256}/>}</div><Badge color={a.warning ? 'warn' : 'neutral'}>{a.warning ? 'Review extension' : 'Not malware-scanned'}</Badge></div>) : <Empty icon={FileText}>No attachments found.</Empty>}</Section><Section title="Decoded message"><pre>{result.body || 'No text body found.'}</pre></Section>{result.ocr && <Section title="Text read from images (OCR)" meta={<Badge>{result.ocr.engine?.available ? 'English/Latin script only' : 'OCR unavailable'}</Badge>}>{result.ocr.text ? <pre>{result.ocr.text}</pre> : <Empty icon={FileText}>{result.ocr.engine?.available ? 'No readable text was found in the images.' : result.ocr.engine?.detail}</Empty>}<p className="caveat">OCR is an aid, not proof: it can miss or misread text, and it does not read Indic scripts.</p></Section>}<Section title="Email headers">{result.headers.map((h, i) => <div className="header-row" key={i}><strong>{h.name}</strong><span className="mono">{h.value}</span></div>)}</Section></>}
             <details className="limitations"><summary>Scope & limitations</summary><ul>{result.limitations.map(l => <li key={l}>{l}</li>)}<li>{result.ml.detail}</li></ul></details>
           </>}
         </>}
         {view === 'cases' && <><div className="list-tools"><label className="search"><Search size={17}/><input aria-label="Search cases full text" placeholder="Search full text (subject, sender, IOCs, findings...)" value={query} onChange={e => setQuery(e.target.value)}/></label><Badge>{cases.length} investigation{cases.length === 1 ? '' : 's'}</Badge></div><div className="case-list">{cases.length ? cases.map(c => <div className="case-row" key={c.id}><span className={`case-score ${tone(c.score)}`}>{c.score}</span><button className="case-open" onClick={() => openCase(c.id)}><strong>{c.subject || '(no subject)'}</strong><small>{c.sender}</small></button><Badge>{c.sample ? 'Fixture' : 'Uploaded'}</Badge><button title="Delete case and original email" aria-label="Delete case and original email" onClick={() => remove(c.id)}><Trash2 size={17}/></button></div>) : <Empty>No matching investigations found.</Empty>}</div></>}
         {view === 'gmail' && <GmailAlerts openCase={openGmailCase}/>}
+        {view === 'quarantine' && <Quarantine/>}
         {view === 'graph' && <>
           <div className="view-tabs" style={{ marginBottom: 20 }}>
             {[['entities', 'Cross-Case Entity Graph'], ['clusters', 'Campaign Clusters'], ['connections', 'Direct Case Links']].map(([key, name]) => (
@@ -221,4 +226,30 @@ export default function App() {
       </div>
     </main>
   </div>
+}
+
+
+export default function App() {
+  const [state, setState] = useState({ status: 'loading', who: null, error: '' })
+  const attempted = useRef(false)
+  async function check() {
+    try {
+      const health = (await api.get('/health')).data
+      if (!health.auth_required) { setState({ status: 'open', who: null, error: '' }); return }
+      setState({ status: 'ready', who: (await api.get('/whoami')).data, error: '' })
+    } catch (e) {
+      if (e.response?.status === 401) setState({ status: 'login', who: null, error: attempted.current ? 'That token was not accepted.' : '' })
+      else setState({ status: 'open', who: null, error: '' })
+    }
+  }
+  useEffect(() => {
+    const first = setTimeout(check, 0)
+    // A 401 while signed in means the token stopped working (rotated or revoked). During sign-in, check() reports the failure itself.
+    const onAuth = () => { roleToken.set(''); setState(prev => prev.status === 'ready' ? { status: 'login', who: null, error: 'Your session ended. Sign in again.' } : prev) }
+    window.addEventListener('efp-auth-required', onAuth)
+    return () => { clearTimeout(first); window.removeEventListener('efp-auth-required', onAuth) }
+  }, [])
+  if (state.status === 'loading') return <main className="auth-shell"><LoaderCircle className="spin" size={22} aria-label="Loading"/></main>
+  if (state.status === 'login') return <AuthGate error={state.error} onSubmit={async token => { attempted.current = true; roleToken.set(token); setState({ status: 'loading', who: null, error: '' }); await check() }}/>
+  return <Workspace key={state.who?.actor || 'open'} who={state.who} onSignOut={() => { attempted.current = false; roleToken.set(''); setState({ status: 'login', who: null, error: '' }) }}/>
 }

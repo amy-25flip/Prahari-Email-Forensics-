@@ -14,7 +14,7 @@
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
-      "js": ["scan-state.js", "content.js"],
+      "js": ["scan-state.js", "click-guard.js", "content.js"],
       "css": ["banner.css"],
       "run_at": "document_idle"
     }

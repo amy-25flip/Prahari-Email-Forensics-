@@ -53,10 +53,19 @@ def _sort_key(created):
     return (2, '')
 
 
-def assess(report, prior_reports):
+def _cross_session(current, ledger_hits):
+    out = []
+    for kind, value in sorted(current):
+        hit = (ledger_hits or {}).get((kind, value))
+        if hit:
+            out.append({'type': kind, 'value': value, **hit})
+    return out
+
+
+def assess(report, prior_reports, ledger_hits=None):
     current = {pair for pair in extract_indicators(report) if pair[0] in TRACKED_TYPES}
     if not current:
-        return {'recurring': [], 'scope': 'Session-scoped indicator history only.'}
+        return {'recurring': [], 'cross_session': [], 'scope': 'Session-scoped indicator history only.'}
 
     occurrences_by_pair = {}
     for prior in prior_reports:
@@ -83,5 +92,6 @@ def assess(report, prior_reports):
         })
 
     return {'recurring': recurring,
-            'scope': 'Session-scoped indicator history only; a clean result here is not proof this indicator is new '
-                     'to the wider world, and recurrence alone is not itself treated as suspicious.'}
+            'cross_session': _cross_session(current, ledger_hits),
+            'scope': 'Session history is per browser session. Cross-session counts come from a hashed indicator ledger (no case content stored, expires after a retention window) and only cover analyses this deployment has performed; '
+                     'a clean result is not proof an indicator is new to the wider world, and recurrence alone is not itself treated as suspicious.'}

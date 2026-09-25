@@ -102,15 +102,14 @@ def _decode_array(image):
     return []
 
 
-def decode_pdf_qr_payloads(pdf_bytes):
-    """Return distinct QR payloads found on the first PDF_MAX_PAGES pages, or []
-    on anything unexpected (corrupt, encrypted, oversized, renderer failure).
-    Never raises."""
+def render_pdf_pages(pdf_bytes):
+    """BGR arrays of the first PDF_MAX_PAGES pages, rendered at a bounded scale under the PDFium lock. Returns [] on anything
+    unexpected (corrupt, encrypted, oversized, renderer failure). Never raises. Shared by QR decoding and OCR."""
     if not pdf_bytes or len(pdf_bytes) > MAX_PDF_BYTES or not pdf_bytes.lstrip()[:5] == b'%PDF-':
         return []
     try:
         import pypdfium2 as pdfium
-        found = []
+        pages = []
         with _pdfium_lock:
             pdf = pdfium.PdfDocument(pdf_bytes)
             try:
@@ -120,12 +119,23 @@ def decode_pdf_qr_payloads(pdf_bytes):
                     if width * height * PDF_RENDER_SCALE ** 2 > MAX_DECLARED_PIXELS:
                         continue
                     rgb = np.array(page.render(scale=PDF_RENDER_SCALE).to_pil().convert('RGB'))
-                    found.extend(_decode_array(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)))
+                    pages.append(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
             finally:
                 pdf.close()
-        return list(dict.fromkeys(found))
+        return pages
     except Exception:
         return []
+
+
+def decode_pdf_qr_payloads(pdf_bytes):
+    """Return distinct QR payloads found on the first PDF_MAX_PAGES pages, or [] on anything unexpected. Never raises."""
+    found = []
+    for page in render_pdf_pages(pdf_bytes):
+        try:
+            found.extend(_decode_array(page))
+        except Exception:
+            continue
+    return list(dict.fromkeys(found))
 
 
 def decode_qr_payloads(image_bytes):

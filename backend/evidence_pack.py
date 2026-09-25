@@ -9,7 +9,9 @@ import datetime
 import pii
 
 ACTION_LABELS = {'analyze': 'Analyzed (original bytes and report hashed)', 'note': 'Analyst note added', 'assign': 'Case assigned',
-                 'review': 'Review decision recorded', 'delete': 'Case deleted', 'blockchain_stamp': 'Chain head submitted for Bitcoin timestamp'}
+                 'review': 'Review decision recorded', 'delete': 'Case deleted', 'landing_inspect': 'Landing page inspected (static, analyst-triggered)',
+                 'gateway_hold': 'Held by the pre-delivery gateway', 'gateway_deliver': 'Delivered by the pre-delivery gateway',
+                 'quarantine_release': 'Released from quarantine', 'quarantine_discard': 'Discarded from quarantine', 'blockchain_stamp': 'Chain head submitted for Bitcoin timestamp'}
 
 
 def _when(epoch):
@@ -33,7 +35,8 @@ def build(result, cid, events, chain, mask_emails=False):
         if event.get('action') == 'note': detail = pii.sanitize(str(event.get('text', ''))[:120], mask_emails)
         elif event.get('action') == 'review': detail = f"{event.get('decision', '')}"
         elif event.get('action') == 'assign': detail = pii.sanitize(str(event.get('owner', '')), mask_emails)
-        rows.append(f"| {item['seq']} | {_when(event.get('at'))} | {ACTION_LABELS.get(event.get('action'), _cell(event.get('action')))} | {_cell(detail)} | `{item['hash'][:16]}...` |")
+        who = f" (by {event['actor']}, {event.get('role', '?')})" if event.get('actor') else ''
+        rows.append(f"| {item['seq']} | {_when(event.get('at'))} | {ACTION_LABELS.get(event.get('action'), _cell(event.get('action')))}{_cell(who) if who else ''} | {_cell(detail)} | `{item['hash'][:16]}...` |")
     analyze = next((i['event'] for i in events if i['event'].get('action') == 'analyze'), {})
     lines = [
         '# Electronic evidence support pack - DRAFT',
