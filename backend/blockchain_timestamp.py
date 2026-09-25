@@ -164,6 +164,12 @@ def stamp(sha256_hex):
     return result
 
 
+def _subtimestamps(timestamp):
+    yield timestamp
+    for child in timestamp.ops.values():
+        yield from _subtimestamps(child)
+
+
 def check(sha256_hex, proof_b64):
     """Check (and attempt to upgrade) an existing proof's confirmation status."""
     try:
@@ -176,15 +182,20 @@ def check(sha256_hex, proof_b64):
         current.update(proof=proof_b64, sha256=sha256_hex.strip().lower())
         return current
     upgraded, errors = False, []
-    for _, attestation in list(file_ts.timestamp.all_attestations()):
-        if not isinstance(attestation, PendingAttestation):
-            continue
-        try:
-            calendar_ts = RemoteCalendar(attestation.uri, user_agent=USER_AGENT).get_timestamp(digest, timeout=TIMEOUT)
-            file_ts.timestamp.merge(calendar_ts)
-            upgraded = True
-        except Exception as exc:
-            errors.append(f'{attestation.uri}: {type(exc).__name__}')
+    # A calendar indexes a pending proof by the COMMITMENT it produced (our digest after the
+    # calendar's nonce/hash ops), not by the original file digest. Ask with that node's own
+    # message and merge the answer back into that same node -- asking with the file digest
+    # always gets "not found", so a proof could never upgrade.
+    for sub in list(_subtimestamps(file_ts.timestamp)):
+        for attestation in list(sub.attestations):
+            if not isinstance(attestation, PendingAttestation):
+                continue
+            try:
+                calendar_ts = RemoteCalendar(attestation.uri, user_agent=USER_AGENT).get_timestamp(sub.msg, timeout=TIMEOUT)
+                sub.merge(calendar_ts)
+                upgraded = True
+            except Exception as exc:
+                errors.append(f'{attestation.uri}: {type(exc).__name__}')
     result = _attestation_status(file_ts)
     result.update(proof=_encode(file_ts) if upgraded else proof_b64, sha256=sha256_hex.strip().lower())
     if errors: result['calendar_errors'] = errors

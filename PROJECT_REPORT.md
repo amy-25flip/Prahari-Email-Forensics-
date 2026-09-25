@@ -34,7 +34,7 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 - **Campaign correlation:** shared reply-address/URL/attachment-hash/thread indicators plus a hybrid body-similarity stack (character-shingle Jaccard, TF-IDF cosine, SimHash). Strong agreement can group cases; moderate agreement only draws a context-only link. Thresholds are heuristic, tuned on a small fixture set.
 - **Cross-case evidence graph:** typed nodes (case, sender, domain, relay IP, URL, attachment hash, reply-to, thread) with per-link `strong`/`context_only` confidence.
 - **Analyst guidance and exchange:** a per-case, evidence-triggered next-step playbook; STIX 2.1 export of adverse indicators only (TLP:AMBER, no message content; validated with the reference stix2 library, not yet tested against a live MISP); a one-click electronic-evidence support pack (manifest, hashes, custody trail, draft declaration for a human signer - support material, not a certificate).
-- **Custody:** SHA-256 hash-chained event log with an independent verify; optional OpenTimestamps anchoring of the chain head into Bitcoin (a pending proof is created immediately; confirmation takes hours); supports, but does not issue, a BSA 2023 s.63 certificate.
+- **Custody:** SHA-256 hash-chained event log with an independent verify; optional OpenTimestamps anchoring of the chain head into Bitcoin (a pending proof is created immediately; confirmation takes hours; a real demo proof is confirmed in Bitcoin block 968372, independently verified against a public block explorer); supports, but does not issue, a BSA 2023 s.63 certificate.
 
 ## 6. Privacy, security and engineering
 - DPDP-conscious exports: Aadhaar (Verhoeff-validated), PAN, UPI and Indian mobile numbers masked; optional email masking; per-export masking summary (counts only); redacted mode. Best-effort, not certified DLP.
@@ -46,7 +46,7 @@ Full SPF, DKIM, DMARC (RFC 9989, including subdomain policy) and ARC (RFC 8617) 
 ## 7. Evaluation (measured)
 | Metric | Result | Source |
 |---|---|---|
-| Backend automated tests | 642 passing | `pytest backend` |
+| Backend automated tests | 645 passing | `pytest backend` |
 | ML accuracy / false-positive rate | 99.32% / 0.49% on 33,527 held-out emails | `training_report.json` |
 | Truncation-evasion detection | 0/100 -> 95/100 | team attack script re-run |
 | Local analysis latency (BERT loaded, no enrichment) | ~50-65 ms median, p95 < 80 ms | `benchmarks/` (2 x 100 runs) |

@@ -111,7 +111,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **642 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
+- **645 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 3/3 test suites passing
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -132,7 +132,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 642 backend tests green
+- 645 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -256,7 +256,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 642 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 645 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -284,7 +284,7 @@ A: The push-ingestion path (Gmail Pub/Sub) does, with OIDC-authenticated webhook
 A: No, and we don't claim it is. It's a lightweight, free-text ownership label for solo/small-team triage, not authentication or RBAC. Real multi-analyst access control is explicitly on the roadmap, not claimed as built.
 
 **Q: Bitcoin anchoring - can you prove a case's timestamp right now, live?**
-A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We submit a real demo proof ahead of time (`demo/bitcoin_proof/`) so a Bitcoin-confirmed proof can be verified live; check its status with `demo_proof.py check` before presenting, and if it has not confirmed yet, say so and show the pending state honestly.
+A: The anchor is submitted immediately and is independently verifiable, but Bitcoin confirmation genuinely takes hours, not seconds - that's how the underlying protocol works, and we're not going to pretend otherwise. We have a real demo proof, submitted ahead of time and now **confirmed in Bitcoin block 968372** (`demo/bitcoin_proof/demo_proof.json`; run `demo_proof.py check` to re-verify it live against a public block explorer). It anchors the real hash-chain head of a sample-case session - proof that the head hash existed by that block, not proof the email is genuine. Confirmation for a fresh case still takes hours, and we say so.
 
 **Q: A prior AI review claimed you fixed a "SQLite deadlock" - did you?**
 A: We stress-tested that exact claim with 20 real concurrent threads and it never reproduced - so we didn't claim a fix for a bug we couldn't confirm existed. We did remove a redundant second database connection in the note/assignment code path as legitimate hardening, but we're precise about the difference between "fixed a proven bug" and "removed a theoretical risk."
@@ -333,7 +333,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ Cross-case evidence graph - typed nodes (case, sender address/domain, relay IP, URL, attachment hash, reply-to, thread ID) linked by shared indicators, each link tagged `strong` or `context_only` confidence rather than one flat "connected" line
 - ✅ Distinct triage priority states (urgent / review / incomplete / routine) - separate from the uncalibrated evidence score
 - ✅ SHA-256 hash-chained tamper-evident event log with an independent chain-integrity verify check
-- ✅ Bitcoin-blockchain anchoring via OpenTimestamps
+- ✅ Bitcoin-blockchain anchoring via OpenTimestamps - a real demo proof is confirmed in block 968372 and re-verifiable on demand
 - ✅ Optional Fernet at-rest field encryption
 
 **Compliance & Privacy**
@@ -367,7 +367,7 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 642 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
+- ✅ 645 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 3/3 test suites
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 14 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, two non-bugs) and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)

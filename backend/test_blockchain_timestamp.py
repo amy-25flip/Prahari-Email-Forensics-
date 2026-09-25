@@ -195,3 +195,76 @@ def test_check_rejects_mismatched_digest():
 def test_check_rejects_malformed_proof():
     result = bt.check(DIGEST, 'not-valid-base64!!!')
     assert result['status'] == 'error'
+
+
+# ---------- upgrade path (regression: check() used to ask calendars for the FILE digest) ----------
+def _realistic_pending_proof(uri='https://cal.example'):
+    """Proof shaped like a real calendar submission: the pending attestation sits on a COMMITMENT
+    (file digest -> append nonce -> sha256), which is not the original digest."""
+    digest = bytes.fromhex(DIGEST)
+    ts = Timestamp(digest)
+    commitment = ts.ops.add(OpAppend(b'calendar-nonce')).ops.add(OpSHA256())
+    commitment.attestations.add(PendingAttestation(uri))
+    return bt._encode(DetachedTimestampFile(OpSHA256(), ts)), commitment.msg
+
+
+class _UpgradeCalendar:
+    """Answers only for the exact commitment, like a real calendar; anything else is 'not found'."""
+    asked = []
+
+    def __init__(self, commitment, height=777777, ready=True):
+        self.commitment, self.height, self.ready = commitment, height, ready
+
+    def factory(self):
+        outer = self
+
+        class Cal:
+            def __init__(self, url, **k): pass
+            def get_timestamp(self, msg, timeout=None):
+                from opentimestamps.calendar import CommitmentNotFoundError
+                outer.asked.append(msg)
+                if msg != outer.commitment or not outer.ready:
+                    raise CommitmentNotFoundError('not found')
+                stamp = Timestamp(msg)
+                merkle = stamp.ops.add(OpAppend(b'merkle-path')).ops.add(OpSHA256())
+                merkle.attestations.add(BitcoinBlockHeaderAttestation(outer.height))
+                outer.merkle_root = merkle.msg
+                return stamp
+        return Cal
+
+
+def test_check_upgrades_a_pending_proof_by_asking_the_calendar_for_the_commitment(monkeypatch):
+    proof, commitment = _realistic_pending_proof()
+    assert commitment != bytes.fromhex(DIGEST)
+    cal = _UpgradeCalendar(commitment)
+    cal.asked.clear()
+    monkeypatch.setattr(bt, 'RemoteCalendar', cal.factory())
+    monkeypatch.setattr(bt, '_fetch_block_merkle_root', lambda height: cal.merkle_root if height == 777777 else None)
+    result = bt.check(DIGEST, proof)
+    assert result['status'] == 'confirmed' and result['bitcoin_block_height'] == 777777
+    assert cal.asked == [commitment]                      # asked with the commitment, never the file digest
+    # the upgraded proof is returned and now verifies on its own without contacting any calendar
+    def fail(*a, **k): pytest.fail('confirmed proof must not re-contact calendars')
+    monkeypatch.setattr(bt, 'RemoteCalendar', fail)
+    again = bt.check(DIGEST, result['proof'])
+    assert again['status'] == 'confirmed'
+
+
+def test_check_stays_pending_when_the_calendar_has_not_confirmed_yet(monkeypatch):
+    proof, commitment = _realistic_pending_proof()
+    cal = _UpgradeCalendar(commitment, ready=False)
+    monkeypatch.setattr(bt, 'RemoteCalendar', cal.factory())
+    result = bt.check(DIGEST, proof)
+    assert result['status'] == 'pending'
+    assert result['proof'] == proof                        # nothing upgraded, original proof preserved
+    assert result['calendar_errors'] and 'CommitmentNotFoundError' in result['calendar_errors'][0]
+
+
+def test_upgraded_but_unverifiable_proof_is_not_reported_confirmed(monkeypatch):
+    proof, commitment = _realistic_pending_proof()
+    cal = _UpgradeCalendar(commitment)
+    monkeypatch.setattr(bt, 'RemoteCalendar', cal.factory())
+    monkeypatch.setattr(bt, '_fetch_block_merkle_root', lambda height: b'\x00' * 32)   # explorer disagrees
+    assert bt.check(DIGEST, proof)['status'] == 'invalid'
+    monkeypatch.setattr(bt, '_fetch_block_merkle_root', lambda height: None)           # explorer unreachable
+    assert bt.check(DIGEST, proof)['status'] == 'unverified'

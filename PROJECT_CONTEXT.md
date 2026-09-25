@@ -47,7 +47,7 @@ This went through 3 rounds of independent Codex review during development, each 
 React + Vite, redesigned around a minimal dashboard (stat cards, collapsed advanced detail, always-visible safety caveats). A top-level `ErrorBoundary` (`frontend/src/ErrorBoundary.jsx`) wraps the whole app so any future null-guard gap degrades to a message instead of a white screen. `SandboxSubmit` has a `key` prop tied to case+attachment identity (fixed a real bug: React was reusing component instances across case switches, leaking stale sandbox-analysis state).
 
 ### Testing state
-**642 backend automated tests (pytest), all passing as of 2026-09-24** (count includes parametrized cases). Frontend build and lint (oxlint) clean. The whole codebase has been through multiple full rounds of independent Codex review (backend line-by-line, frontend, deployment config) across the project's lifetime — every finding fixed and re-verified.
+**645 backend automated tests (pytest), all passing as of 2026-09-24** (count includes parametrized cases). Frontend build and lint (oxlint) clean. The whole codebase has been through multiple full rounds of independent Codex review (backend line-by-line, frontend, deployment config) across the project's lifetime — every finding fixed and re-verified.
 
 ### Known, already-accepted limitations (documented on purpose, not hidden)
 - Geo-infrastructure intelligence locates relay infrastructure, not a human attacker — the app says this directly.
