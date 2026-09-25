@@ -73,3 +73,11 @@ OCR for Indic scripts; rendered landing-page screenshots and visual brand matchi
 
 ## 10. References
 RFC 7208 (SPF), RFC 6376 (DKIM), RFC 9989 (DMARC), RFC 8617 (ARC), RFC 5322; Devlin et al., BERT (2019); OpenTimestamps; BSA 2023 s.63; FBI IC3 reports; CERT-In/PIB 2025 incident data; SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 enterprise phishing networks, BEC systematic review (Computers & Security 2025) - full citations in `PPT_DATA_WINNING.md`.
+
+## Addendum 2026-09-25: PS-wording gaps and independent evaluation
+
+Added: curated brand lookalike / display-name spoofing checks (`brands.py`), known-bad relay infrastructure feeds (`known_bad.py`: abuse.ch Feodo, Spamhaus DROP; open relay
+not detected), gateway-signed receiver receipts (`GATEWAY_RECEIPT_KEY`), investigator leads from RDAP (`leads.py`), and a documented five-class decision table
+(`classification.py`, not a trained model). Independent evaluation (`benchmarks/external_evaluation.md`): 98% recall on 150 phishing messages from a 2025 public corpus, but a
+37% false-positive rate on 300 legitimate 2003 messages (mostly promotional newsletters); the five-class table catches 7% of that real phishing as phishing/fraud/impersonation
+despite 0.91 accuracy on hand-written synthetic fixtures. Leads and gateway receipts are fixture/local-demo verified only.

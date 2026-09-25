@@ -138,11 +138,11 @@ class GatewayHandler:
     def __init__(self, analyze, maildrop, on_event=None):
         self.analyze, self.maildrop, self.on_event = analyze, maildrop, on_event
 
-    def process(self, raw, mail_from, rcpt_tos, peer):
+    def process(self, raw, mail_from, rcpt_tos, peer, helo=''):
         """Synchronous core (also used directly by tests). Returns ('deliver'|'hold', item_id)."""
         item_id = self.maildrop.new_id()
         try:
-            result = self.analyze(raw, {'mail_from': mail_from, 'rcpt_tos': list(rcpt_tos), 'peer': peer})
+            result = self.analyze(raw, {'mail_from': mail_from, 'rcpt_tos': list(rcpt_tos), 'peer': peer, 'helo': helo})
             action, reasons = decide(result)
         except GatewayTransient:
             raise
@@ -168,7 +168,7 @@ class GatewayHandler:
         raw = envelope.original_content or envelope.content or b''
         peer = (session.peer or ('unknown',))[0]
         try:
-            action, _ = await asyncio.get_running_loop().run_in_executor(None, self.process, raw, envelope.mail_from, envelope.rcpt_tos, peer)
+            action, _ = await asyncio.get_running_loop().run_in_executor(None, self.process, raw, envelope.mail_from, envelope.rcpt_tos, peer, str(getattr(session, 'host_name', '') or ''))
         except GatewayTransient:
             return '451 4.7.1 Analysis capacity reached, please retry shortly'
         except Exception:                       # e.g. disk full while filing the message: never deliver, never bounce - ask the sender to retry

@@ -40,4 +40,4 @@ def assess(hops, enabled):
     observed={ip for hop in hops for ip in hop.get('ips',[])}
     return {'status':state,'source':SOURCE,'fetched_at':fetched or None,
             'matches':sorted(observed&ips),
-            'detail':'Exact reported-IP matches to a Tor exit snapshot, not proof of Tor use at email delivery or malicious intent. No match is not a clean verdict. VPN, open-relay and botnet coverage is unavailable.'}
+            'detail':'Exact reported-IP matches to a Tor exit snapshot, not proof of Tor use at email delivery or malicious intent. No match is not a clean verdict. VPN coverage and open-relay detection are unavailable (open relay would need active probing, which is out of scope); botnet/netblock matches are under known_bad.'}

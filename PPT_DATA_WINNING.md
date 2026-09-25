@@ -116,7 +116,7 @@ Speaker note: Say "employee email-account compromise," not "confirmed phishing c
 **OpenTimestamps + SHA-256** | **Splunk HEC** | **PhishTank / VirusTotal / AbuseIPDB**
 
 ### Proof It Runs
-- **769 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
+- **785 backend tests passing** - covering Gmail race conditions, dead-letter retries, prompt injection, PII masking, OpenTimestamps, SSRF and access-control boundaries, a real SMTP gateway, real OCR, and every fallback state, not just the happy path
 - Frontend build/lint clean (0 oxlint warnings); browser extension 9/9 tests passing (including the click-time warning)
 - **Adversarial-evasion hardened, not just claimed:** truncation-shift attack detection measured at 0/100 before the fix, **95/100 after**, on the team's own held-out attack re-run
 - CSP and Permissions-Policy always on; Strict-Transport-Security enabled whenever deployed with HTTPS asserted (`COOKIE_SECURE=1`) - verified live in a real browser against the running app
@@ -137,7 +137,7 @@ Visual: make the pipeline the main graphic. Keep technology as a thin logo strip
 **Working prototype today, not a concept.**
 
 - Runs locally end-to-end
-- 769 backend tests green
+- 785 backend tests green
 - Open-source, proven stack
 - External APIs are optional
 - Graceful fallback when enrichment is unavailable
@@ -213,7 +213,7 @@ Closing line:
 
 **PRAHARI: from inbox alert to defensible evidence.**
 
-Speaker note: 99.32% is a held-out test-split result, not a real-world guarantee.
+Speaker note: 99.32% is a held-out test-split result, not a real-world guarantee. On an independent external test the classifier caught 98% of 2025 phishing but also flagged 37% of 2003 legitimate mail (mostly newsletters) - say this before a judge asks.
 
 ---
 
@@ -262,7 +262,7 @@ SIH judges score against a fixed rubric. Here's what to point to for each criter
 | 1 | Novelty of the Idea | 10% | AI-manipulation/prompt-injection detection (the tool defends itself, not just the user); truthful attribution instead of fake attacker identity; quishing + conversation-aware BEC as underserved attack surfaces |
 | 2 | Complexity & Architecture | 15% | Multi-window BERT inference, RFC-compliant SPF/DKIM/DMARC/ARC engine, hash-chained + Bitcoin-anchored evidence store, typed cross-case evidence graph, SIEM dispatcher - 7+ fused signal groups with one converging verdict |
 | 3 | Clarity & Prescribed Format | 10% | Strict 6-slide template, one-email-journey demo narrative instead of a module list, clean RFC/legal citations throughout, explicit `Built` vs `Roadmap` separation on every slide |
-| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 769 automated tests, modular swappable pipeline |
+| 4 | Feasibility & Viability | 15% | Runs fully local, external APIs optional with graceful fallback, 785 automated tests, modular swappable pipeline |
 | 5 | Practicability & Applicability | 15% | Gmail Guard browser extension + Pub/Sub push mean zero new inbox habit; PDF/CEF/Splunk exports slot into existing SOC tooling |
 | 6 | Sustainability & Security | 10% | CSP/HSTS/Permissions-Policy, 0 known dependency vulnerabilities, rate-limiting with spoof-resistant proxy trust, zero-paid-API core |
 | 7 | Scale of Impact | 10% | Directly addresses quishing/UPI fraud and BEC payment diversion - both named as emerging, underserved threats in the roadmap research (Slide 6) |
@@ -297,6 +297,9 @@ A: The anchor is submitted immediately and is independently verifiable, but Bitc
 
 **Q: A prior AI review claimed you fixed a "SQLite deadlock" - did you?**
 A: We stress-tested that exact claim with 20 real concurrent threads and it never reproduced - so we didn't claim a fix for a bug we couldn't confirm existed. We did remove a redundant second database connection in the note/assignment code path as legitimate hardening, but we're precise about the difference between "fixed a proven bug" and "removed a theoretical risk."
+
+**Q: Did you test on data the model has not seen from elsewhere?**
+A: Yes, and the result is mixed, which is why we publish it. On 150 phishing messages from a 2025 public corpus the classifier flagged 98%; on 300 legitimate messages from a 2003 public corpus it flagged 37%, mostly promotional newsletters that resemble promotional phishing. The era gap explains part of that but not all. Flagged mail lands in a review queue rather than an automatic block: the gateway holds only urgent or score-60+ mail, which wrongly held 2% of that legitimate mail but also caught only about 6% of the phishing on its own, and cases carrying only the model signal are labelled "model-only" in the case view. The fix is retraining with modern legitimate newsletters as negatives, which is on the roadmap.
 
 **Q: How real is your 99.32% accuracy?**
 A: It's a held-out test-split result on 33,527 emails the model never trained on, from an exact-deduplicated random split - a legitimate number, not a real-world guarantee. We haven't yet run a campaign-held-out or near-duplicate-safe benchmark (template-level near-duplicates across campaigns could still leak signal between train and test) - that's explicitly on our own roadmap, not swept under the rug. Real-world traffic will also drift from any training distribution; that's exactly why the pipeline never lets the ML score stand alone - it's fused with cryptographic sender authentication.
@@ -384,7 +387,13 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - ✅ CycloneDX SBOMs generated for backend (85 components, from a clean install mirroring the Docker image) and frontend (59 components); `pip-audit` over all 85 backend packages (torch's CPU build is not in PyPI's advisory index and cannot be audited by pip-audit) and `npm audit` over all 102 frontend dependencies both report 0 known vulnerabilities (reproducible - see `security/README.md`)
 
 **Engineering Quality**
-- ✅ 769 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
+- ✅ Brand lookalike and display-name spoofing detection - a curated table of Indian banks, government and payment services plus a few global brands; flags lookalike domains (suffix swaps, one-character edits, homoglyphs, brand-plus-keyword combinations) on the sender, Reply-To and linked domains, and display names that invoke a brand from an unrelated domain. Legitimate domains and their subdomains are never flagged. Curated, not exhaustive: an unlisted brand is not covered
+- ✅ Known-bad infrastructure matching - relay IPs checked against the abuse.ch Feodo Tracker botnet command-and-control list and Spamhaus DROP netblocks (cached public feeds, no API key; states fresh/stale/unavailable). A match is a lead, not proof the sender is a bot. Open-relay detection is not offered (it would need active probing)
+- ✅ Gateway-attested earliest node (opt-in via `GATEWAY_RECEIPT_KEY`) - the SMTP gateway signs what it observed (connecting IP, MAIL FROM, HELO) bound to the message bytes using the same attestation mechanism as the receiver evidence. Proven over real SMTP; in a local demo the connecting IP is loopback, so this shows the mechanism, not validation against a real institutional mail server
+- ✅ Investigator leads - registrar and network-owner abuse contacts and registration dates from public RDAP records (opt-in enrichment). Tells an investigator who to contact, never who the sender is; tested against fixture RDAP data, not run against live registries
+- ✅ Five-class primary classification (legitimate / suspicious / impersonated / phishing / fraud-related) - a documented deterministic decision table over model, authentication and rule evidence, shown as a chip in the case view. Not a trained five-class model. 0.91 accuracy on 75 hand-written synthetic fixtures, but only 7% recall on 150 real 2025 phishing messages, so present it as a triage aid
+- ✅ Independent evaluation harness - reproducible run on public corpora not used in training (Nazario 2025 phishing, CC-BY-4.0; SpamAssassin legitimate mail): the classifier flags 98% of the phishing but also 37% of the legitimate mail, mostly promotional newsletters (details in `benchmarks/external_evaluation.md`)
+- ✅ 785 automated backend tests, frontend build/lint clean (0 oxlint warnings), browser extension 9/9 tests
 - ✅ Multi-round independent AI code review on every change, with every finding logged in `security/REVIEW_REGISTER.md` - 32 entries: real bugs fixed with regression tests, plus the claims we investigated and did NOT act on (a SQLite deadlock that never reproduced, non-bugs including a wrongly claimed "no Python 3.12 torch wheel") and known limitations left open
 
 ### 🔜 Planned - Research-Informed Roadmap (Not Yet Built)
@@ -403,7 +412,10 @@ A: It's a held-out test-split result on 33,527 emails the model never trained on
 - 🔜 Evidence-linked explanations - stable finding IDs that reference exact source location
 
 **Additional roadmap items**
-- 🔜 India-specific curated brand/UPI reference set for impersonation detection (the similarity-check mechanism already exists; the curated list doesn't ship by default)
+- 🔜 A larger, continuously verified brand and UPI reference set (today: a curated starter table of Indian banks, government and payment services plus a few global brands)
+- 🔜 Retraining the classifier with modern legitimate newsletters and marketing mail as negatives - our external test flags many of them (see Slide 3 honesty note)
+- 🔜 A trained five-class model (today: a documented decision table over model and rule evidence)
+- 🔜 Open-relay detection - needs active probing of mail servers, which we deliberately do not do
 - 🔜 A trained multilingual / code-mixed phishing classifier (Hindi + regional languages) - today: a language-coverage router plus localized keyword rules, and the classifier itself is still English-trained
 - 🔜 Broader adversarial-robustness testing (paraphrase attacks - beyond today's truncation-shift, homoglyph and zero-width coverage)
 - 🔜 Async job pipeline for slow enrichment (page-fetch, OCR) with retries and resilience

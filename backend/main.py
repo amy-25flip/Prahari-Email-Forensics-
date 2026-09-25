@@ -1,3 +1,4 @@
+import ipaddress
 import csv
 import asyncio
 import binascii
@@ -351,6 +352,9 @@ class SMTPContext(BaseModel):
     @classmethod
     def hostname(cls, value):
         import re
+        if value.startswith('[') and value.endswith(']'):      # RFC 5321 address literal, e.g. [192.0.2.1]
+            ipaddress.ip_address(value[1:-1].removeprefix('IPv6:'))
+            return value
         if not all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in value.rstrip('.').split('.')):
             raise ValueError('HELO must be a DNS hostname.')
         return value.lower().rstrip('.')
@@ -384,6 +388,11 @@ def execute(request, raw, source, live, sample=False, context=None, receiver=Non
             result['origin'] = 'Receiver-attested ingress'
         import infrastructure
         result['assessment']['infrastructure'] = infrastructure.assess(result['hops'], live)
+        import known_bad
+        result['assessment']['infrastructure']['known_bad'] = known_bad.assess(result['hops'], live)
+        result['assessment']['checks'] = result['assessment']['checks'] + known_bad.checks(result['assessment']['infrastructure']['known_bad'])
+        import leads
+        result['assessment']['leads'] = leads.assess(result, live)
         import ip_reputation
         result['assessment']['ip_reputation'] = ip_reputation.enrich(result['hops'], live)
         import attachment_reputation
@@ -1273,13 +1282,31 @@ def _maildrop():
     return gateway.Maildrop(Path(store.DATA) / 'maildrop')
 
 
+def _gateway_receipt(raw, envelope):
+    """The gateway is a real SMTP receiver: it observed the connecting IP, MAIL FROM and HELO. With GATEWAY_RECEIPT_KEY (>=32 bytes)
+    it signs those with the existing receiver-attestation mechanism and verifies the receipt against the original bytes, so a
+    gateway-ingested message gets an authenticated_observation earliest node. Without the key: no attestation (unchanged behaviour).
+    In a local demo the connecting IP is private/loopback: this proves the mechanism, not validation against a real institutional mail
+    server, and private addresses are never geolocated."""
+    key = os.getenv('GATEWAY_RECEIPT_KEY', '')
+    if len(key.encode()) < 32: return None, None
+    try:
+        import receiver_evidence
+        smtp = SMTPContext.model_validate({'client_ip': envelope.get('peer'), 'mail_from': envelope.get('mail_from') or '<>', 'helo': envelope.get('helo') or 'unknown'}).model_dump(mode='json')
+        signed = receiver_evidence.sign(raw, smtp, 'prahari-gateway', key)
+        return smtp, receiver_evidence.verify(signed, raw, {'prahari-gateway': key})
+    except (ValueError, ValidationError):
+        return None, None
+
+
 def _gateway_analyze(raw, envelope):
     """Bridge from the SMTP gateway to the normal analysis pipeline (fixed gateway session, system actor)."""
     import types, gateway
     request = types.SimpleNamespace(state=types.SimpleNamespace(sid=store.gateway_session(), actor=None))
     token = authz.current_actor.set(authz.SYSTEM_GATEWAY)
+    context, receiver = _gateway_receipt(raw, envelope)
     try:
-        return execute(request, raw, 'gateway', False)
+        return execute(request, raw, 'gateway', False, False, context, receiver)
     except HTTPException as exc:
         if exc.status_code == 429: raise gateway.GatewayTransient() from exc
         raise

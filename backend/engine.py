@@ -15,6 +15,8 @@ import domain_intelligence
 import general_detection
 import prompt_injection
 import adversarial
+import brands
+import classification
 import pii
 import qr_detection
 import language_support
@@ -280,6 +282,9 @@ def analyze(raw, source='upload', live=False, context=None):
             flag('identity', header + ' domain differs', f'{sender} versus {other}. Legitimate delegation is possible; inspect context.', points)
     if len(msg.get_all('From', [])) > 1: flag('identity', 'Multiple From headers', 'Ambiguous sender identity.', 25)
     if 'xn--' in sender: flag('identity', 'Internationalized sender domain', 'Review the Unicode display for impersonation.', 10)
+    brand_checks = brands.assess(msg.get('From'), msg.get('Reply-To'), [u.get('domain', '') for u in urls.values()])
+    for check in brand_checks[:4]:
+        flag('identity', 'Look-alike domain' if check['kind'] == 'lookalike_domain' else 'Display-name brand spoofing', check['detail'], 15 if check['kind'] == 'lookalike_domain' else 10)
     auth = authenticate(msg, raw, live, source, context)
     if auth['dkim']['status'] == 'fail': flag('authentication', 'DKIM signature failed', auth['dkim']['detail'], 15)
     if auth['spf']['status'] == 'fail': flag('authentication', 'SPF evaluation failed', auth['spf']['detail'], 15)
@@ -410,7 +415,7 @@ def analyze(raw, source='upload', live=False, context=None):
         if a['size']: indicators.append({'type': 'attachment_hash', 'value': a['sha256']})
     geo = enrich_locations(hops, live)
     finding_ids.assign(findings, 'group')
-    return {'subject': str(msg.get('Subject') or '')[:500], 'sender': str(msg.get('From'))[:500], 'recipient': str(msg.get('To', ''))[:500],
+    result = {'subject': str(msg.get('Subject') or '')[:500], 'sender': str(msg.get('From'))[:500], 'recipient': str(msg.get('To', ''))[:500],
             'date': str(msg.get('Date', 'Unknown')), 'body': body, 'sha256': hashlib.sha256(raw).hexdigest(),
             'source': source, 'score': score, 'risk': 'High' if score >= 60 else 'Review' if score >= 25 else 'Low',
             'score_policy': 'evidence-v2; grouped heuristic, not fraud probability', 'groups': groups,
@@ -420,7 +425,7 @@ def analyze(raw, source='upload', live=False, context=None):
             'conflicts': detect_conflicts(findings, auth, prediction, list(urls.values())),
             'findings': findings, 'ml': prediction, 'authentication': auth, 'urls': list(urls.values()),
             'attachments': attachments, 'hops': hops, 'indicators': indicators, 'geo': geo,
-            'language': language, 'ocr': ({'chars': len(ocr_text), 'blocks': len(ocr_blocks), 'text': ocr_text[:2000], 'engine': ocr.status()} if ocr_items else None),
+            'brand_checks': brand_checks, 'language': language, 'ocr': ({'chars': len(ocr_text), 'blocks': len(ocr_blocks), 'text': ocr_text[:2000], 'engine': ocr.status()} if ocr_items else None),
         'prompt_injection': manipulation, 'adversarial': adversarial_delta, 'pii': pii.scan(classifier_text),
             'payment_signals': payment_signals,
             'headers': [{'name': k, 'value': str(v)[:4000]} for k, v in list(msg.items())[:100]],
@@ -431,3 +436,5 @@ def analyze(raw, source='upload', live=False, context=None):
                             'SPF using supplied SMTP context is conditional on those inputs; current DNS may differ from historical DNS.',
                             'Coverage counts completed checks, not confidence or safety.'],
             'elapsed_ms': round((time.perf_counter() - started) * 1000), 'live_dns': live}
+    result['classification'] = classification.classify(result)
+    return result

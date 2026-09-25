@@ -198,3 +198,25 @@ def test_storage_failure_gets_a_retryable_451_and_nothing_is_delivered(client, m
     finally:
         main.stop_gateway()
         monkeypatch.setattr(gateway.Maildrop, 'hold', real)
+
+
+def test_gateway_receipt_gives_an_attested_earliest_node_only_when_a_key_is_configured(gw, monkeypatch):
+    send(gw, PHISH)
+    case = store.get(store.gateway_session(), drop().list_held()[0]['case_id'])
+    assert case['assessment']['origin_evidence']['confidence'] != 'authenticated_observation'
+    monkeypatch.setenv('GATEWAY_RECEIPT_KEY', 'k' * 40)
+    send(gw, 'X-Run: second\n' + PHISH)
+    newest = max(drop().list_held(), key=lambda m: m['held_at'])
+    origin = store.get(store.gateway_session(), newest['case_id'])['assessment']['origin_evidence']
+    assert origin['confidence'] == 'authenticated_observation'
+    assert origin['earliest_reliable_node'] == {'ip': '127.0.0.1', 'provenance': 'receiver_attestation', 'receiver': 'prahari-gateway'}
+    assert origin['approximate_location'] is None                      # private/loopback demo address is never geolocated
+
+
+def test_receipt_is_bound_to_the_bytes_and_rejects_a_short_key(monkeypatch):
+    import receiver_evidence
+    signed = receiver_evidence.sign(b'abc', {'client_ip': '203.0.113.5', 'mail_from': 'a@b.example', 'helo': 'mx.example'}, 'r', 'k' * 40)
+    assert receiver_evidence.verify(signed, b'abc', {'r': 'k' * 40})['smtp']['client_ip'] == '203.0.113.5'
+    with pytest.raises(ValueError): receiver_evidence.verify(signed, b'abcd', {'r': 'k' * 40})
+    monkeypatch.setenv('GATEWAY_RECEIPT_KEY', 'short')
+    assert main._gateway_receipt(b'abc', {'peer': '203.0.113.5', 'mail_from': 'a@b.example', 'helo': 'mx.example'}) == (None, None)
