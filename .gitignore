@@ -21,3 +21,7 @@ backend/gmail_token.json
 backend/gmail_watch_state.json
 backend/gmail_oauth_setup.log
 evaluation/data/
+training_v2/
+# internal presentation working files (team prep notes, drafts, templates, slide images)
+presentation/*
+!presentation/PRAHARI_SIH26106_submission.pdf

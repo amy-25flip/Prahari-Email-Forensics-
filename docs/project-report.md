@@ -2,7 +2,7 @@
 
 **Team:** Cache-Me-Maybe | **PS:** SIH26106 - AI-Powered Email Threat Detection, Geo-Location and Forensic Intelligence Platform | **Theme:** Blockchain & Cybersecurity | **Category:** Software
 
-Status of this document: describes the prototype as it exists in this repository. Every figure is either measured (source given) or explicitly marked. Requirement-by-requirement status against the problem statement is in `docs/acceptance-matrix.md`; slide copy is in `PPT_DATA_WINNING.md`.
+Status of this document: describes the prototype as it exists in this repository. Every figure is either measured (source given) or explicitly marked. Requirement-by-requirement status against the problem statement is in `docs/acceptance-matrix.md`; the submitted idea deck is `presentation/PRAHARI_SIH26106_submission.pdf`.
 
 ## 1. Problem and approach
 Phishing and business-email-compromise (BEC) are the dominant entry point for enterprise breaches; a filter that only blocks a message leaves the analyst without the evidence needed to attribute infrastructure, link campaigns, or support a legal process. PRAHARI treats a suspicious email as a **forensic case**: it classifies the content, cryptographically checks who sent it, traces the relay infrastructure, correlates it with other cases, and stores the result in a tamper-evident log that can be exported to a SOC. Design principle: report what the evidence supports, label uncertainty, never invent an attacker identity.
@@ -69,10 +69,16 @@ Infrastructure location is not attacker location. 99.32% is a held-out figure, n
 Configuration of the optional features (all off unless set, except the ledger and OCR): `ROLE_TOKENS`, `FOUR_EYES`, `GATEWAY_SMTP_PORT`/`GATEWAY_SMTP_HOST`/`GATEWAY_HOLD_SCORE`, `GMAIL_ACTION_MODE`/`GMAIL_ACTION_MIN_SCORE`, `LEDGER_ENABLED`/`LEDGER_KEY`/`LEDGER_RETENTION_DAYS`, `OCR_ENABLED`, `LANDING_INSPECT_ENABLED`.
 
 ## 9. Roadmap
-OCR for Indic scripts; rendered landing-page screenshots and visual brand matching; calibrated probabilities (Brier/reliability); learned multimodal fusion; campaign/near-duplicate-held-out evaluation; multilingual and code-mixed detection; RBAC; persistent cross-session indicator history; analyst-feedback loop and drift monitoring.
+OCR for Indic scripts; rendered landing-page screenshots and visual brand matching; calibrated probabilities (Brier/reliability); learned multimodal fusion; campaign/near-duplicate-held-out evaluation; multilingual and code-mixed detection; SSO/OIDC identity for roles (today: per-person tokens); analyst-feedback loop and drift monitoring.
 
 ## 10. References
-RFC 7208 (SPF), RFC 6376 (DKIM), RFC 9989 (DMARC), RFC 8617 (ARC), RFC 5322; Devlin et al., BERT (2019); OpenTimestamps; BSA 2023 s.63; FBI IC3 reports; CERT-In/PIB 2025 incident data; SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 enterprise phishing networks, BEC systematic review (Computers & Security 2025) - full citations in `PPT_DATA_WINNING.md`.
+RFC 7208 (SPF), RFC 6376 (DKIM), RFC 9989 (DMARC), RFC 8617 (ARC), RFC 5322; Devlin et al., BERT (2019); OpenTimestamps; BSA 2023 s.63; FBI IC3 reports; CERT-In/PIB 2025 incident data; SAHF-PD (Electronics 2026), PhishTrace review (J. Cybersecur. Priv. 2026), PhishLumos (IEEE Access 2026), PAM 2025 enterprise phishing networks, BEC systematic review (Computers & Security 2025). Full citations:
+- Yuan et al., "LLM-Based Multimodal Feature Extraction and Hierarchical Fusion for Phishing Email Detection," *Electronics* 2026, 15(2):368. https://doi.org/10.3390/electronics15020368
+- Laleb, Le & Nguyen, "Digital Forensics and Phishing Defense: A Literature Review and Gap Analysis," *J. Cybersecur. Priv.* 2026, 6(4):116. https://doi.org/10.3390/jcp6040116
+- Chiba, Nakano & Koide, "PhishLumos: From a Single URL to Campaign-Level Phishing Mitigation," *IEEE Access* 2026. https://doi.org/10.1109/ACCESS.2026.3696597
+- Luo et al., "Characterizing the Networks Sending Enterprise Phishing Emails," PAM 2025.
+- Almutairi, Kang & Alhashimy, "Business email compromise: A systematic review of understanding, detection, and challenges," *Computers & Security* 158 (2025) 104630. https://doi.org/10.1016/j.cose.2025.104630
+- CERT-In cyber-incident data 2025 (PIB): https://www.pib.gov.in/PressReleasePage.aspx?PRID=2244504&lang=1&reg=3
 
 ## Addendum 2026-09-25: PS-wording gaps and independent evaluation
 

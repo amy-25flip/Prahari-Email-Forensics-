@@ -168,7 +168,7 @@ function Workspace({ who, onSignOut }) {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#" onClick={e => { e.preventDefault(); setView('analyze') }}><span className="brand-icon"><ShieldCheck size={23}/></span><span>AI-Powered Email<br/>Threat Detection</span></a>
+      <a className="brand" href="#" onClick={e => { e.preventDefault(); setView('analyze') }}><span className="brand-icon"><ShieldCheck size={23}/></span><span><span className="brand-name">PRAHARI</span><small>Email threat forensics</small></span></a>
       <div className="workspace-label">WORKSPACE <span>01</span></div>
       <nav>{[['analyze', ScanLine, 'Investigate'], ['cases', Files, 'Case history'], ['gmail', Mail, 'Gmail alerts'], ['quarantine', ShieldAlert, 'Quarantine'], ['graph', Network, 'Connections']].map(([key, Icon, title]) => <button key={key} className={view === key ? 'nav-item active' : 'nav-item'} onClick={() => setView(key)}><Icon size={18}/><span>{title}</span>{key === 'cases' && <small>{cases.length}</small>}</button>)}</nav>
       <div className="sidebar-bottom"><span className="session-dot"/> {who ? `${who.actor} (${who.role})` : 'Private session'}{who && <button className="secondary" onClick={onSignOut} style={{ marginLeft: 8, padding: '2px 8px', fontSize: 10 }}>Sign out</button>}<small>{health?.retention_hours ?? 24}-hour retention · {cases.length}/30 cases</small></div>

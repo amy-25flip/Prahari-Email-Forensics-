@@ -10,3 +10,6 @@
 .hero-chips{position:relative;display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
 .chip{font-size:11px;padding:6px 13px;border-radius:20px;background:#a3e63512;border:1px solid #a3e63535;color:#c4ecab;font-weight:500}
 @media(max-width:700px){.hero{padding:20px}.hero p{font-size:13px}}
+
+.brand-name{display:block;font-size:19px;font-weight:800;letter-spacing:3px;color:#edf2e7;line-height:1.1}
+.brand small{letter-spacing:.4px}

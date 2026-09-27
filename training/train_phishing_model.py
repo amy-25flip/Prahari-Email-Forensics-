@@ -43,7 +43,9 @@ from transformers import (
     EarlyStoppingCallback,
 )
 
-DATA_DIR = Path(r"C:\Users\Admin\OneDrive\Documents\ChatGPT\SIH\datasets\processed")
+# Folder holding the processed train.csv / validation.csv / test.csv (columns: subject, body, label).
+# The dataset is not stored in git; point PHISHING_DATA_DIR at your copy.
+DATA_DIR = Path(os.getenv("PHISHING_DATA_DIR", str(Path(__file__).parent / "data" / "processed")))
 BASE_MODEL = "bert-base-uncased"
 MAX_LENGTH = 256
 ID2LABEL = {0: "LEGITIMATE", 1: "PHISHING"}
